@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DIRECTOR
+  TEACHER
+}
+
+enum ClassStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
+enum EventType {
+  CLASS
+  EVENT
+  HOLIDAY
+  MEETING
+}
+
+model User {
+  id            String          @id @default(uuid())
+  email         String          @unique
+  passwordHash  String
+  name          String
+  role          Role            @default(TEACHER)
+  permissions   String[]        @default([])
+  announcements Announcement[]  @relation("AnnouncementAuthor")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model Student {
+  id          String       @id @default(uuid())
+  name        String
+  email       String?
+  phone       String?
+  cpf         String?
+  birthDate   DateTime?    @db.Date
+  address     String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  enrollments Enrollment[]
+  attendances Attendance[]
+}
+
+model Class {
+  id           String       @id @default(uuid())
+  name         String
+  course       String
+  schedule     String?
+  room         String?
+  capacity     Int?
+  status       ClassStatus  @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  enrollments  Enrollment[]
+  lessonPlans  LessonPlan[]
+  events       Event[]
+  attendances  Attendance[]
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  student    Student  @relation(fields: [studentId], references: [id])
+  studentId  String
+  class      Class    @relation(fields: [classId], references: [id])
+  classId    String
+  enrolledAt DateTime @default(now())
+
+  @@unique([studentId, classId])
+}
+
+model Attendance {
+  id        String           @id @default(uuid())
+  student   Student          @relation(fields: [studentId], references: [id])
+  studentId String
+  class     Class?           @relation(fields: [classId], references: [id])
+  classId   String?
+  date      DateTime         @db.Date
+  status    AttendanceStatus
+  createdAt DateTime         @default(now())
+
+  @@unique([studentId, classId, date])
+  @@index([date])
+}
+
+model LessonPlan {
+  id        String   @id @default(uuid())
+  class     Class    @relation(fields: [classId], references: [id])
+  classId   String
+  date      DateTime @db.Date
+  subject   String
+  content   String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+model Event {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  date        DateTime  @db.Date
+  type        EventType
+  class       Class?    @relation(fields: [classId], references: [id])
+  classId     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([date])
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  body      String
+  author    User     @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
