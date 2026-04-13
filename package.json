@@ -6,7 +6,7 @@
     "apps/api"
   ],
   "scripts": {
-    "dev": "npm run dev -w apps/web",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:web": "npm run dev -w apps/web",
     "dev:api": "npm run dev -w apps/api",
     "build": "npm run build -w apps/web",
@@ -15,5 +15,8 @@
     "prisma:generate": "npm run prisma:generate -w apps/api",
     "prisma:migrate": "npm run prisma:migrate -w apps/api",
     "seed:admin": "npm run seed:admin -w apps/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
