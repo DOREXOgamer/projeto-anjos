@@ -1,10 +1,12 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, UserCheck, BookOpen, TrendingUp } from "lucide-react"
 import { store } from "@/lib/store"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
+import { Spinner } from "@/components/ui/spinner"
 
 const chartConfig = {
   presentes: {
@@ -18,14 +20,25 @@ const chartConfig = {
 }
 
 export default function DashboardPage() {
-  const alunos = store.getAlunos()
-  const planos = store.getPlanos()
-  const presencaSemanal = store.getPresencaSemanal()
-  
-  // Stats
-  const totalAlunos = alunos.length
-  const presentesHoje = 4 // mockado
-  const aulasDoDia = planos.filter(p => p.data === new Date().toISOString().split('T')[0]).length || 2
+  const [loading, setLoading] = useState(true)
+  const [totalAlunos, setTotalAlunos] = useState(0)
+  const [presentesHoje, setPresentesHoje] = useState(0)
+  const [aulasDoDia, setAulasDoDia] = useState(0)
+  const [presencaSemanal, setPresencaSemanal] = useState<{ dia: string; presentes: number; ausentes: number }[]>([])
+
+  useEffect(() => {
+    store.getStatsAndChart()
+      .then((data) => {
+        setTotalAlunos(data.stats.totalAlunos)
+        setPresentesHoje(data.stats.presentesHoje)
+        setAulasDoDia(data.stats.aulasDoDia)
+        setPresencaSemanal(data.weeklyPresenca)
+      })
+      .catch((err) => console.error("Erro ao buscar dados do dashboard:", err))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const taxaPresenca = totalAlunos > 0 ? `${Math.round((presentesHoje / totalAlunos) * 100)}%` : "0%"
 
   const stats = [
     {
@@ -51,7 +64,7 @@ export default function DashboardPage() {
     },
     {
       title: "Taxa de Presença",
-      value: `${Math.round((presentesHoje / totalAlunos) * 100)}%`,
+      value: taxaPresenca,
       icon: TrendingUp,
       color: "text-warning",
       bgColor: "bg-warning/10",
@@ -59,11 +72,19 @@ export default function DashboardPage() {
   ]
 
   const atividadesRecentes = [
-    { tipo: "cadastro", descricao: "Novo aluno cadastrado: Lucas Ferreira", tempo: "2 horas atrás" },
-    { tipo: "presenca", descricao: "Presença registrada - Turma Música Manhã", tempo: "3 horas atrás" },
-    { tipo: "plano", descricao: "Plano de aula criado: Teoria Musical", tempo: "1 dia atrás" },
-    { tipo: "cadastro", descricao: "Novo aluno cadastrado: Juliana Lima", tempo: "2 dias atrás" },
+    { tipo: "cadastro", descricao: "Dados sincronizados com o banco MongoDB Atlas", tempo: "Agora" },
+    { tipo: "cadastro", descricao: "Novo aluno cadastrado no sistema", tempo: "Recentemente" },
+    { tipo: "presenca", descricao: "Chamada diária de presença ativa", tempo: "Hoje" },
+    { tipo: "plano", descricao: "Planos de aula em sincronização", tempo: "Sempre ativo" },
   ]
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Spinner className="h-6 w-6" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pt-12 md:pt-0">

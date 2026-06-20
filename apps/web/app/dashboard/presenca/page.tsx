@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch"
 import { CheckCircle, UserCheck, UserX, Save, Calendar, Filter } from "lucide-react"
 import { store } from "@/lib/store"
 import type { Aluno, Presenca } from "@/lib/types"
+import { Spinner } from "@/components/ui/spinner"
 
 const cursos = ["Todos", "Música", "Artes", "Dança", "Teatro", "Esportes", "Informática"]
 
@@ -39,26 +40,38 @@ export default function PresencaPage() {
   const [cursoFiltro, setCursoFiltro] = useState("Todos")
   const [sucesso, setSucesso] = useState("")
   const [salvando, setSalvando] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const alunosData = store.getAlunos()
-    setAlunos(alunosData)
+    let active = true
+    setLoading(true)
     
-    // Carregar presenças da data selecionada
-    const presencasData = store.getPresencasByData(dataSelecionada)
-    const presencaMap = new Map<string, boolean>()
-    
-    // Inicializar todos como ausentes
-    alunosData.forEach(aluno => {
-      presencaMap.set(aluno.id, false)
+    Promise.all([
+      store.getAlunos(),
+      store.getPresencasByData(dataSelecionada)
+    ]).then(([alunosData, presencasData]) => {
+      if (!active) return
+      setAlunos(alunosData)
+      
+      const presencaMap = new Map<string, boolean>()
+      // Inicializar todos como ausentes
+      alunosData.forEach(aluno => {
+        presencaMap.set(aluno.id, false)
+      })
+      // Marcar os presentes
+      presencasData.forEach(p => {
+        presencaMap.set(p.alunoId, p.status === 'presente')
+      })
+      setPresencas(presencaMap)
+    }).catch(err => {
+      console.error("Erro ao carregar dados de presença:", err)
+    }).finally(() => {
+      if (active) setLoading(false)
     })
-    
-    // Marcar os presentes
-    presencasData.forEach(p => {
-      presencaMap.set(p.alunoId, p.status === 'presente')
-    })
-    
-    setPresencas(presencaMap)
+
+    return () => {
+      active = false
+    }
   }, [dataSelecionada])
 
   const togglePresenca = (alunoId: string) => {
@@ -72,17 +85,21 @@ export default function PresencaPage() {
   const handleSalvar = async () => {
     setSalvando(true)
     
-    // Simular delay de salvamento
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // Salvar cada presença
-    presencas.forEach((presente, alunoId) => {
-      store.setPresenca(alunoId, dataSelecionada, presente ? 'presente' : 'ausente')
-    })
-    
-    setSalvando(false)
-    setSucesso("Presença salva com sucesso!")
-    setTimeout(() => setSucesso(""), 3000)
+    try {
+      const records = Array.from(presencas.entries()).map(([alunoId, presente]) => ({
+        studentId: alunoId,
+        status: (presente ? 'presente' : 'ausente') as 'presente' | 'ausente'
+      }))
+      
+      await store.saveBulkAttendance(dataSelecionada, records)
+      
+      setSucesso("Presença salva com sucesso!")
+      setTimeout(() => setSucesso(""), 3000)
+    } catch (err) {
+      console.error("Erro ao salvar presenças:", err)
+    } finally {
+      setSalvando(false)
+    }
   }
 
   const marcarTodos = (presente: boolean) => {
@@ -103,6 +120,16 @@ export default function PresencaPage() {
     .filter(([id, presente]) => presente && alunosFiltrados.some(a => a.id === id))
     .length
   const totalAusentes = alunosFiltrados.length - totalPresentes
+
+  if (loading && alunos.length === 0) {
+    return (
+      <RequirePermission permission={PERMISSIONS.PRESENCA}>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </RequirePermission>
+    )
+  }
 
   return (
     <RequirePermission permission={PERMISSIONS.PRESENCA}>

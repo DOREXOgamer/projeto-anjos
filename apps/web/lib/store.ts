@@ -1,197 +1,242 @@
 "use client"
 
-import type { Aluno, Presenca, PlanoAula } from './types'
-
-// Dados mockados para demonstração
-const alunosMock: Aluno[] = [
-  {
-    id: '1',
-    nome: 'Maria Silva',
-    cpf: '123.456.789-00',
-    dataNascimento: '2015-05-10',
-    email: 'maria.silva@email.com',
-    telefone: '(11) 99999-0001',
-    endereco: 'Rua das Flores, 123',
-    curso: 'Música',
-    createdAt: '2024-01-15'
-  },
-  {
-    id: '2',
-    nome: 'João Santos',
-    cpf: '234.567.890-11',
-    dataNascimento: '2014-08-22',
-    email: 'joao.santos@email.com',
-    telefone: '(11) 99999-0002',
-    endereco: 'Av. Principal, 456',
-    curso: 'Artes',
-    createdAt: '2024-01-20'
-  },
-  {
-    id: '3',
-    nome: 'Ana Oliveira',
-    cpf: '345.678.901-22',
-    dataNascimento: '2016-03-15',
-    email: 'ana.oliveira@email.com',
-    telefone: '(11) 99999-0003',
-    endereco: 'Rua da Esperança, 789',
-    curso: 'Dança',
-    createdAt: '2024-02-01'
-  },
-  {
-    id: '4',
-    nome: 'Pedro Costa',
-    cpf: '456.789.012-33',
-    dataNascimento: '2015-11-30',
-    email: 'pedro.costa@email.com',
-    telefone: '(11) 99999-0004',
-    endereco: 'Travessa do Sol, 321',
-    curso: 'Música',
-    createdAt: '2024-02-10'
-  },
-  {
-    id: '5',
-    nome: 'Juliana Lima',
-    cpf: '567.890.123-44',
-    dataNascimento: '2014-07-08',
-    email: 'juliana.lima@email.com',
-    telefone: '(11) 99999-0005',
-    endereco: 'Rua Nova, 654',
-    curso: 'Teatro',
-    createdAt: '2024-02-15'
-  },
-  {
-    id: '6',
-    nome: 'Lucas Ferreira',
-    cpf: '678.901.234-55',
-    dataNascimento: '2016-01-25',
-    email: 'lucas.ferreira@email.com',
-    telefone: '(11) 99999-0006',
-    endereco: 'Av. Central, 987',
-    curso: 'Artes',
-    createdAt: '2024-03-01'
-  },
-]
-
-const presencasMock: Presenca[] = [
-  { id: '1', alunoId: '1', data: '2024-03-20', status: 'presente' },
-  { id: '2', alunoId: '2', data: '2024-03-20', status: 'presente' },
-  { id: '3', alunoId: '3', data: '2024-03-20', status: 'ausente' },
-  { id: '4', alunoId: '4', data: '2024-03-20', status: 'presente' },
-  { id: '5', alunoId: '5', data: '2024-03-20', status: 'presente' },
-  { id: '6', alunoId: '6', data: '2024-03-20', status: 'ausente' },
-]
-
-const planosMock: PlanoAula[] = [
-  {
-    id: '1',
-    data: '2024-03-20',
-    turma: 'Música - Manhã',
-    disciplina: 'Teoria Musical',
-    conteudo: 'Introdução às notas musicais e escalas básicas. Prática com instrumentos de percussão.',
-    observacoes: 'Trazer caderno de música',
-    createdAt: '2024-03-18'
-  },
-  {
-    id: '2',
-    data: '2024-03-20',
-    turma: 'Artes - Tarde',
-    disciplina: 'Pintura',
-    conteudo: 'Técnicas de aquarela e mistura de cores primárias.',
-    observacoes: 'Material fornecido pelo projeto',
-    createdAt: '2024-03-19'
-  },
-  {
-    id: '3',
-    data: '2024-03-21',
-    turma: 'Dança - Manhã',
-    disciplina: 'Dança Contemporânea',
-    conteudo: 'Alongamento e movimentos básicos de expressão corporal.',
-    observacoes: 'Usar roupas confortáveis',
-    createdAt: '2024-03-19'
-  },
-]
-
-// Store simples em memória
-let alunos = [...alunosMock]
-let presencas = [...presencasMock]
-let planos = [...planosMock]
+import type { Aluno, Presenca, PlanoAula, Turma, Evento } from './types'
+import { getStoredToken, API_URL } from './auth'
 
 export const store = {
-  // Alunos
-  getAlunos: () => alunos,
-  addAluno: (aluno: Omit<Aluno, 'id' | 'createdAt'>) => {
-    const newAluno: Aluno = {
-      ...aluno,
-      id: String(Date.now()),
-      createdAt: new Date().toISOString().split('T')[0]
-    }
-    alunos = [...alunos, newAluno]
-    return newAluno
-  },
-  updateAluno: (id: string, data: Partial<Aluno>) => {
-    alunos = alunos.map(a => a.id === id ? { ...a, ...data } : a)
-  },
-  deleteAluno: (id: string) => {
-    alunos = alunos.filter(a => a.id !== id)
+  // Alunos (Students)
+  getAlunos: async (): Promise<Aluno[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/students`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter alunos")
+    const data = await res.json()
+    return data.students || []
   },
 
-  // Presença
-  getPresencas: () => presencas,
-  getPresencasByData: (data: string) => presencas.filter(p => p.data === data),
-  setPresenca: (alunoId: string, data: string, status: 'presente' | 'ausente') => {
-    const existing = presencas.find(p => p.alunoId === alunoId && p.data === data)
-    if (existing) {
-      presencas = presencas.map(p => 
-        p.alunoId === alunoId && p.data === data ? { ...p, status } : p
-      )
-    } else {
-      presencas = [...presencas, {
-        id: String(Date.now()),
-        alunoId,
-        data,
-        status
-      }]
-    }
+  addAluno: async (aluno: Omit<Aluno, 'id' | 'createdAt'>): Promise<Aluno> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/students`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(aluno)
+    })
+    if (!res.ok) throw new Error("Erro ao adicionar aluno")
+    const data = await res.json()
+    return data.student
   },
 
-  // Planos de Aula
-  getPlanos: () => planos,
-  addPlano: (plano: Omit<PlanoAula, 'id' | 'createdAt'>) => {
-    const newPlano: PlanoAula = {
-      ...plano,
-      id: String(Date.now()),
-      createdAt: new Date().toISOString().split('T')[0]
-    }
-    planos = [...planos, newPlano]
-    return newPlano
+  updateAluno: async (id: string, data: Partial<Aluno>): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/students/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Erro ao atualizar aluno")
   },
-  updatePlano: (id: string, data: Partial<PlanoAula>) => {
-    planos = planos.map(p => p.id === id ? { ...p, ...data } : p)
+
+  deleteAluno: async (id: string): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/students/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao excluir aluno")
   },
-  deletePlano: (id: string) => {
-    planos = planos.filter(p => p.id !== id)
+
+  // Turmas (Classes)
+  getClasses: async (): Promise<Turma[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/classes`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter turmas")
+    const data = await res.json()
+    return data.classes || []
+  },
+
+  addClass: async (classData: Omit<Turma, 'id' | 'alunosMatriculados' | 'createdAt'>): Promise<Turma> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/classes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(classData)
+    })
+    if (!res.ok) throw new Error("Erro ao criar turma")
+    const data = await res.json()
+    return data.class
+  },
+
+  updateClass: async (id: string, data: Partial<Turma>): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/classes/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Erro ao atualizar turma")
+  },
+
+  deleteClass: async (id: string): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/classes/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao excluir turma")
+  },
+
+  // Presença (Attendance)
+  getPresencas: async (): Promise<Presenca[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/attendance`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter presenças")
+    const data = await res.json()
+    return data.records || []
+  },
+
+  getPresencasByData: async (date: string): Promise<Presenca[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/attendance?date=${date}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter presenças da data")
+    const data = await res.json()
+    return data.records || []
+  },
+
+  saveBulkAttendance: async (date: string, records: { studentId: string, status: 'presente' | 'ausente' }[]): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/attendance`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ date, records })
+    })
+    if (!res.ok) throw new Error("Erro ao salvar chamada")
+  },
+
+  // Planos de Aula (Lesson Plans)
+  getPlanos: async (): Promise<PlanoAula[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/lessons`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter planos de aula")
+    const data = await res.json()
+    return data.lessons || []
+  },
+
+  addPlano: async (plano: Omit<PlanoAula, 'id' | 'createdAt'>): Promise<PlanoAula> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/lessons`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(plano)
+    })
+    if (!res.ok) throw new Error("Erro ao adicionar plano de aula")
+    const data = await res.json()
+    return data.lesson
+  },
+
+  updatePlano: async (id: string, data: Partial<PlanoAula>): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/lessons/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Erro ao atualizar plano de aula")
+  },
+
+  deletePlano: async (id: string): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/lessons/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao excluir plano de aula")
+  },
+
+  // Calendário (Events)
+  getEvents: async (): Promise<Evento[]> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/events`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter eventos")
+    const data = await res.json()
+    return data.events || []
+  },
+
+  addEvent: async (event: Omit<Evento, 'id'>): Promise<Evento> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(event)
+    })
+    if (!res.ok) throw new Error("Erro ao adicionar evento")
+    const data = await res.json()
+    return data.event
+  },
+
+  updateEvent: async (id: string, data: Partial<Evento>): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/events/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Erro ao atualizar evento")
+  },
+
+  deleteEvent: async (id: string): Promise<void> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/events/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao excluir evento")
   },
 
   // Dashboard Stats
-  getStats: () => {
-    const hoje = new Date().toISOString().split('T')[0]
-    const presencasHoje = presencas.filter(p => p.data === hoje && p.status === 'presente')
-    const aulasHoje = planos.filter(p => p.data === hoje)
-    
-    return {
-      totalAlunos: alunos.length,
-      presentesHoje: presencasHoje.length,
-      aulasDoDia: aulasHoje.length
-    }
-  },
-
-  // Presença semanal para gráfico
-  getPresencaSemanal: () => {
-    const dias = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex']
-    return dias.map((dia, index) => ({
-      dia,
-      presentes: Math.floor(Math.random() * alunos.length * 0.8) + Math.floor(alunos.length * 0.4),
-      ausentes: Math.floor(Math.random() * alunos.length * 0.3)
-    }))
+  getStatsAndChart: async (): Promise<{ stats: { totalAlunos: number; presentesHoje: number; aulasDoDia: number }; weeklyPresenca: { dia: string; presentes: number; ausentes: number }[] }> => {
+    const token = getStoredToken()
+    const res = await fetch(`${API_URL}/stats`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error("Erro ao obter estatísticas")
+    return await res.json()
   }
 }

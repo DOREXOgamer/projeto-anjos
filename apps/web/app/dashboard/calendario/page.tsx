@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { RequirePermission } from "@/components/auth/require-permission"
 import { PERMISSIONS } from "@/lib/permissions"
 import { 
@@ -43,15 +43,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import type { Evento } from "@/lib/types"
-
-const eventosMock: Evento[] = [
-  { id: '1', titulo: 'Aula de Música', descricao: 'Teoria musical básica', data: '2026-03-23', horario: '08:00', tipo: 'aula', turmaId: '1' },
-  { id: '2', titulo: 'Aula de Artes', descricao: 'Pintura em aquarela', data: '2026-03-23', horario: '14:00', tipo: 'aula', turmaId: '2' },
-  { id: '3', titulo: 'Reunião de Pais', descricao: 'Reunião semestral com pais e responsáveis', data: '2026-03-25', horario: '19:00', tipo: 'reuniao' },
-  { id: '4', titulo: 'Apresentação de Dança', descricao: 'Apresentação final do semestre', data: '2026-03-28', horario: '15:00', tipo: 'evento' },
-  { id: '5', titulo: 'Feriado - Páscoa', descricao: 'Sexta-feira Santa', data: '2026-03-29', horario: '', tipo: 'feriado' },
-  { id: '6', titulo: 'Aula de Teatro', descricao: 'Improvisação teatral', data: '2026-03-24', horario: '15:00', tipo: 'aula', turmaId: '4' },
-]
+import { store } from "@/lib/store"
+import { Spinner } from "@/components/ui/spinner"
 
 const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -64,7 +57,8 @@ const tipoEventoConfig = {
 }
 
 export default function CalendarioPage() {
-  const [eventos, setEventos] = useState<Evento[]>(eventosMock)
+  const [eventos, setEventos] = useState<Evento[]>([])
+  const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date(2026, 2, 1)) // Março 2026
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -76,6 +70,13 @@ export default function CalendarioPage() {
     horario: '',
     tipo: 'aula' as Evento['tipo']
   })
+
+  useEffect(() => {
+    store.getEvents()
+      .then((data) => setEventos(data))
+      .catch((err) => console.error("Erro ao buscar eventos:", err))
+      .finally(() => setLoading(false))
+  }, [])
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear()
@@ -122,21 +123,25 @@ export default function CalendarioPage() {
     setSelectedDate(dateStr)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (editingEvento) {
-      setEventos(eventos.map(ev => 
-        ev.id === editingEvento.id ? { ...ev, ...formData } : ev
-      ))
-    } else {
-      const newEvento: Evento = {
-        id: String(Date.now()),
-        ...formData
+    setLoading(true)
+    
+    try {
+      if (editingEvento) {
+        await store.updateEvent(editingEvento.id, formData)
+      } else {
+        await store.addEvent(formData)
       }
-      setEventos([...eventos, newEvento])
+      const data = await store.getEvents()
+      setEventos(data)
+      resetForm()
+      setModalOpen(false)
+    } catch (err) {
+      console.error("Erro ao salvar evento:", err)
+    } finally {
+      setLoading(false)
     }
-    resetForm()
-    setModalOpen(false)
   }
 
   const resetForm = () => {
@@ -162,8 +167,19 @@ export default function CalendarioPage() {
     setModalOpen(true)
   }
 
-  const handleDelete = (id: string) => {
-    setEventos(eventos.filter(e => e.id !== id))
+  const handleDelete = async (id: string) => {
+    if (confirm("Tem certeza que deseja excluir este evento?")) {
+      setLoading(true)
+      try {
+        await store.deleteEvent(id)
+        const data = await store.getEvents()
+        setEventos(data)
+      } catch (err) {
+        console.error("Erro ao excluir evento:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
   }
 
   const handleAddEvento = () => {
@@ -186,6 +202,16 @@ export default function CalendarioPage() {
     return day === today.getDate() && 
            currentDate.getMonth() === today.getMonth() && 
            currentDate.getFullYear() === today.getFullYear()
+  }
+
+  if (loading && eventos.length === 0) {
+    return (
+      <RequirePermission permission={PERMISSIONS.CALENDARIO}>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </RequirePermission>
+    )
   }
 
   return (

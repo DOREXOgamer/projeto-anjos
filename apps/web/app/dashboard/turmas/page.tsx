@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { RequirePermission } from "@/components/auth/require-permission"
 import { PERMISSIONS } from "@/lib/permissions"
 import { 
@@ -43,80 +43,15 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import type { Turma } from "@/lib/types"
-
-const turmasMock: Turma[] = [
-  {
-    id: '1',
-    nome: 'Música - Manhã',
-    curso: 'Música',
-    horario: '08:00 - 10:00',
-    diasSemana: ['Segunda', 'Quarta', 'Sexta'],
-    professor: 'Prof. Carlos Silva',
-    capacidade: 20,
-    alunosMatriculados: 15,
-    sala: 'Sala 01',
-    status: 'ativa',
-    createdAt: '2024-01-10'
-  },
-  {
-    id: '2',
-    nome: 'Artes - Tarde',
-    curso: 'Artes',
-    horario: '14:00 - 16:00',
-    diasSemana: ['Terça', 'Quinta'],
-    professor: 'Prof. Maria Santos',
-    capacidade: 15,
-    alunosMatriculados: 12,
-    sala: 'Sala 02',
-    status: 'ativa',
-    createdAt: '2024-01-15'
-  },
-  {
-    id: '3',
-    nome: 'Dança - Manhã',
-    curso: 'Dança',
-    horario: '09:00 - 11:00',
-    diasSemana: ['Segunda', 'Quarta'],
-    professor: 'Prof. Ana Oliveira',
-    capacidade: 18,
-    alunosMatriculados: 18,
-    sala: 'Sala 03',
-    status: 'ativa',
-    createdAt: '2024-02-01'
-  },
-  {
-    id: '4',
-    nome: 'Teatro - Tarde',
-    curso: 'Teatro',
-    horario: '15:00 - 17:00',
-    diasSemana: ['Terça', 'Quinta', 'Sexta'],
-    professor: 'Prof. João Costa',
-    capacidade: 12,
-    alunosMatriculados: 8,
-    sala: 'Auditório',
-    status: 'ativa',
-    createdAt: '2024-02-10'
-  },
-  {
-    id: '5',
-    nome: 'Música - Noite',
-    curso: 'Música',
-    horario: '18:00 - 20:00',
-    diasSemana: ['Segunda', 'Quarta'],
-    professor: 'Prof. Carlos Silva',
-    capacidade: 15,
-    alunosMatriculados: 5,
-    sala: 'Sala 01',
-    status: 'inativa',
-    createdAt: '2024-01-20'
-  },
-]
+import { store } from "@/lib/store"
+import { Spinner } from "@/components/ui/spinner"
 
 const cursos = ['Música', 'Artes', 'Dança', 'Teatro', 'Esportes']
 const diasSemanaOptions = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
 export default function TurmasPage() {
-  const [turmas, setTurmas] = useState<Turma[]>(turmasMock)
+  const [turmas, setTurmas] = useState<Turma[]>([])
+  const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [filtroCurso, setFiltroCurso] = useState<string>('todos')
@@ -133,6 +68,13 @@ export default function TurmasPage() {
     status: 'ativa' as 'ativa' | 'inativa'
   })
 
+  useEffect(() => {
+    store.getClasses()
+      .then((data) => setTurmas(data))
+      .catch((err) => console.error("Erro ao buscar turmas:", err))
+      .finally(() => setLoading(false))
+  }, [])
+
   const turmasFiltradas = turmas.filter(turma => {
     const matchBusca = turma.nome.toLowerCase().includes(busca.toLowerCase()) ||
                        turma.professor.toLowerCase().includes(busca.toLowerCase())
@@ -141,26 +83,31 @@ export default function TurmasPage() {
     return matchBusca && matchStatus && matchCurso
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (editingTurma) {
-      setTurmas(turmas.map(t => 
-        t.id === editingTurma.id 
-          ? { ...t, ...formData, capacidade: Number(formData.capacidade) }
-          : t
-      ))
-    } else {
-      const newTurma: Turma = {
-        id: String(Date.now()),
+    setLoading(true)
+    
+    try {
+      const dataToSend = {
         ...formData,
         capacidade: Number(formData.capacidade),
-        alunosMatriculados: 0,
-        createdAt: new Date().toISOString().split('T')[0]
+        status: formData.status as 'ativa' | 'inativa',
       }
-      setTurmas([...turmas, newTurma])
+      
+      if (editingTurma) {
+        await store.updateClass(editingTurma.id, dataToSend)
+      } else {
+        await store.addClass(dataToSend)
+      }
+      const data = await store.getClasses()
+      setTurmas(data)
+      setModalOpen(false)
+      resetForm()
+    } catch (err) {
+      console.error("Erro ao salvar turma:", err)
+    } finally {
+      setLoading(false)
     }
-    resetForm()
-    setModalOpen(false)
   }
 
   const resetForm = () => {
@@ -192,8 +139,19 @@ export default function TurmasPage() {
     setModalOpen(true)
   }
 
-  const handleDelete = (id: string) => {
-    setTurmas(turmas.filter(t => t.id !== id))
+  const handleDelete = async (id: string) => {
+    if (confirm("Tem certeza que deseja excluir esta turma?")) {
+      setLoading(true)
+      try {
+        await store.deleteClass(id)
+        const data = await store.getClasses()
+        setTurmas(data)
+      } catch (err) {
+        console.error("Erro ao excluir turma:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
   }
 
   const toggleDiaSemana = (dia: string) => {
@@ -212,9 +170,19 @@ export default function TurmasPage() {
     return { color: 'bg-green-500', text: 'Disponível' }
   }
 
+  if (loading && turmas.length === 0) {
+    return (
+      <RequirePermission permission={PERMISSIONS.TURMAS}>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </RequirePermission>
+    )
+  }
+
   return (
     <RequirePermission permission={PERMISSIONS.TURMAS}>
-    <div className="space-y-6">
+    <div className="space-y-6 pt-12 md:pt-0">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -356,7 +324,7 @@ export default function TurmasPage() {
                 <DialogClose asChild>
                   <Button type="button" variant="outline">Cancelar</Button>
                 </DialogClose>
-                <Button type="submit" className="bg-primary hover:bg-primary/90">
+                <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                   {editingTurma ? 'Salvar' : 'Cadastrar'}
                 </Button>
               </DialogFooter>
@@ -545,5 +513,3 @@ export default function TurmasPage() {
     </RequirePermission>
   )
 }
-
-

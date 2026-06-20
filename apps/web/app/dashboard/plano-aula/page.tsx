@@ -36,6 +36,7 @@ import {
 } from "lucide-react"
 import { store } from "@/lib/store"
 import type { PlanoAula } from "@/lib/types"
+import { Spinner } from "@/components/ui/spinner"
 
 const turmas = [
   "Música - Manhã",
@@ -69,6 +70,7 @@ const disciplinas = [
 
 export default function PlanoAulaPage() {
   const [planos, setPlanos] = useState<PlanoAula[]>([])
+  const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
   const [editingPlano, setEditingPlano] = useState<PlanoAula | null>(null)
@@ -85,7 +87,10 @@ export default function PlanoAulaPage() {
   })
 
   useEffect(() => {
-    setPlanos(store.getPlanos())
+    store.getPlanos()
+      .then((data) => setPlanos(data))
+      .catch((err) => console.error("Erro ao buscar planos de aula:", err))
+      .finally(() => setLoading(false))
   }, [])
 
   const resetForm = () => {
@@ -99,22 +104,29 @@ export default function PlanoAulaPage() {
     setEditingPlano(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
     
-    if (editingPlano) {
-      store.updatePlano(editingPlano.id, form)
-      setSucesso("Plano de aula atualizado com sucesso!")
-    } else {
-      store.addPlano(form)
-      setSucesso("Plano de aula criado com sucesso!")
+    try {
+      if (editingPlano) {
+        await store.updatePlano(editingPlano.id, form)
+        setSucesso("Plano de aula atualizado com sucesso!")
+      } else {
+        await store.addPlano(form)
+        setSucesso("Plano de aula criado com sucesso!")
+      }
+      
+      const data = await store.getPlanos()
+      setPlanos(data)
+      setDialogOpen(false)
+      resetForm()
+      setTimeout(() => setSucesso(""), 3000)
+    } catch (err) {
+      console.error("Erro ao salvar plano de aula:", err)
+    } finally {
+      setLoading(false)
     }
-    
-    setPlanos(store.getPlanos())
-    setDialogOpen(false)
-    resetForm()
-    
-    setTimeout(() => setSucesso(""), 3000)
   }
 
   const handleEdit = (plano: PlanoAula) => {
@@ -134,12 +146,20 @@ export default function PlanoAulaPage() {
     setViewDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Tem certeza que deseja excluir este plano de aula?")) {
-      store.deletePlano(id)
-      setPlanos(store.getPlanos())
-      setSucesso("Plano de aula excluído com sucesso!")
-      setTimeout(() => setSucesso(""), 3000)
+      setLoading(true)
+      try {
+        await store.deletePlano(id)
+        const data = await store.getPlanos()
+        setPlanos(data)
+        setSucesso("Plano de aula excluído com sucesso!")
+        setTimeout(() => setSucesso(""), 3000)
+      } catch (err) {
+        console.error("Erro ao excluir plano de aula:", err)
+      } finally {
+        setLoading(false)
+      }
     }
   }
 
@@ -149,6 +169,16 @@ export default function PlanoAulaPage() {
       month: '2-digit',
       year: 'numeric'
     })
+  }
+
+  if (loading && planos.length === 0) {
+    return (
+      <RequirePermission permission={PERMISSIONS.PLANO_AULA}>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </RequirePermission>
+    )
   }
 
   return (

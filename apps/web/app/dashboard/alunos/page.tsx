@@ -34,6 +34,7 @@ import {
 import { Plus, Pencil, Trash2, Search, CheckCircle, Users } from "lucide-react"
 import { store } from "@/lib/store"
 import type { Aluno } from "@/lib/types"
+import { Spinner } from "@/components/ui/spinner"
 
 const cursos = ["Música", "Artes", "Dança", "Teatro", "Esportes", "Informática"]
 
@@ -57,6 +58,7 @@ const formatTelefone = (value: string) => {
 
 export default function AlunosPage() {
   const [alunos, setAlunos] = useState<Aluno[]>([])
+  const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAluno, setEditingAluno] = useState<Aluno | null>(null)
@@ -74,7 +76,10 @@ export default function AlunosPage() {
   })
 
   useEffect(() => {
-    setAlunos(store.getAlunos())
+    store.getAlunos()
+      .then((data) => setAlunos(data))
+      .catch((err) => console.error("Erro ao buscar alunos:", err))
+      .finally(() => setLoading(false))
   }, [])
 
   const resetForm = () => {
@@ -90,22 +95,28 @@ export default function AlunosPage() {
     setEditingAluno(null)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
     
-    if (editingAluno) {
-      store.updateAluno(editingAluno.id, form)
-      setSucesso("Aluno atualizado com sucesso!")
-    } else {
-      store.addAluno(form)
-      setSucesso("Aluno cadastrado com sucesso!")
+    try {
+      if (editingAluno) {
+        await store.updateAluno(editingAluno.id, form)
+        setSucesso("Aluno atualizado com sucesso!")
+      } else {
+        await store.addAluno(form)
+        setSucesso("Aluno cadastrado com sucesso!")
+      }
+      const data = await store.getAlunos()
+      setAlunos(data)
+      setDialogOpen(false)
+      resetForm()
+    } catch (err) {
+      console.error("Erro ao salvar aluno:", err)
+    } finally {
+      setLoading(false)
+      setTimeout(() => setSucesso(""), 3000)
     }
-    
-    setAlunos(store.getAlunos())
-    setDialogOpen(false)
-    resetForm()
-    
-    setTimeout(() => setSucesso(""), 3000)
   }
 
   const handleEdit = (aluno: Aluno) => {
@@ -122,12 +133,20 @@ export default function AlunosPage() {
     setDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Tem certeza que deseja excluir este aluno?")) {
-      store.deleteAluno(id)
-      setAlunos(store.getAlunos())
-      setSucesso("Aluno excluído com sucesso!")
-      setTimeout(() => setSucesso(""), 3000)
+      setLoading(true)
+      try {
+        await store.deleteAluno(id)
+        const data = await store.getAlunos()
+        setAlunos(data)
+        setSucesso("Aluno excluído com sucesso!")
+      } catch (err) {
+        console.error("Erro ao excluir aluno:", err)
+      } finally {
+        setLoading(false)
+        setTimeout(() => setSucesso(""), 3000)
+      }
     }
   }
 
@@ -135,6 +154,16 @@ export default function AlunosPage() {
     aluno.nome.toLowerCase().includes(filtro.toLowerCase()) ||
     aluno.curso.toLowerCase().includes(filtro.toLowerCase())
   )
+
+  if (loading && alunos.length === 0) {
+    return (
+      <RequirePermission permission={PERMISSIONS.ALUNOS}>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </RequirePermission>
+    )
+  }
 
   return (
     <RequirePermission permission={PERMISSIONS.ALUNOS}>
@@ -397,5 +426,3 @@ export default function AlunosPage() {
     </RequirePermission>
   )
 }
-
-
