@@ -1,3 +1,4 @@
+import "express-async-errors"
 import express from "express"
 import cors from "cors"
 import type { NextFunction, Request, Response } from "express"
