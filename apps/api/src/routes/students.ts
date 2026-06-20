@@ -10,10 +10,29 @@ const studentSchema = z.object({
   cpf: z.string().min(1),
   dataNascimento: z.string().min(1),
   email: z.string().email().or(z.literal("")).optional(),
-  telefone: z.string().min(1),
-  endereco: z.string().min(1),
-  curso: z.string().min(1),
+  telefone: z.string().or(z.literal("")).optional(),
+  endereco: z.string().or(z.literal("")).optional(),
+  curso: z.string().or(z.literal("")).optional(),
+  classId: z.string().nullable().optional(),
+  classIds: z.array(z.string()).optional(),
 })
+
+async function updateClassEnrollmentCounts() {
+  const classes = await db.collection("classes").find().toArray()
+  for (const c of classes) {
+    const classIdStr = c._id.toString()
+    const count = await db.collection("students").countDocuments({
+      $or: [
+        { classId: classIdStr },
+        { classIds: classIdStr }
+      ]
+    })
+    await db.collection("classes").updateOne(
+      { _id: c._id },
+      { $set: { alunosMatriculados: count } }
+    )
+  }
+}
 
 // GET /students - List all students
 router.get("/", requireAuth, async (_req, res) => {
@@ -31,6 +50,8 @@ router.get("/", requireAuth, async (_req, res) => {
     telefone: s.telefone,
     endereco: s.endereco,
     curso: s.curso,
+    classId: s.classId || null,
+    classIds: s.classIds || [],
     createdAt: s.createdAt,
   }))
 
@@ -48,6 +69,8 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const result = await db.collection("students").insertOne(newStudent)
+
+  await updateClassEnrollmentCounts()
 
   const student = {
     id: result.insertedId.toString(),
@@ -72,6 +95,8 @@ router.put("/:id", requireAuth, async (req, res) => {
     { $set: updateData }
   )
 
+  await updateClassEnrollmentCounts()
+
   return res.json({ success: true })
 })
 
@@ -81,9 +106,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
 
   await db.collection("students").deleteOne({ _id: new ObjectId(id) })
   
-  // Clean up any enrollments/attendance for this student
-  await db.collection("enrollments").deleteMany({ studentId: new ObjectId(id) })
-  await db.collection("attendances").deleteMany({ studentId: new ObjectId(id) })
+  // Clean up attendance for this student (studentId stored as string)
+  await db.collection("attendances").deleteMany({ studentId: id })
+
+  await updateClassEnrollmentCounts()
 
   return res.json({ success: true })
 })

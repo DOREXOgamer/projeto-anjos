@@ -11,6 +11,7 @@ import { attendanceRouter } from "./routes/attendance.js";
 import { lessonsRouter } from "./routes/lessons.js";
 import { eventsRouter } from "./routes/events.js";
 import { statsRouter } from "./routes/stats.js";
+import { coursesRouter } from "./routes/courses.js";
 import { env } from "./lib/env.js";
 export const app = express();
 const corsOrigins = env.CORS_ORIGIN
@@ -33,6 +34,7 @@ app.use("/attendance", attendanceRouter);
 app.use("/lessons", lessonsRouter);
 app.use("/events", eventsRouter);
 app.use("/stats", statsRouter);
+app.use("/courses", coursesRouter);
 app.use((err, _req, res, _next) => {
     if (err instanceof ZodError) {
         return res.status(400).json({

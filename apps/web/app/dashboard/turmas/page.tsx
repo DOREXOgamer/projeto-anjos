@@ -13,8 +13,11 @@ import {
   Clock,
   MapPin,
   MoreVertical,
-  Filter
+  Filter,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,37 +45,58 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import type { Turma } from "@/lib/types"
-import { store } from "@/lib/store"
-import { Spinner } from "@/components/ui/spinner"
+import { getClasses, createClass, updateClass, deleteClass, getStudents, getCourses, getTeachers } from "@/lib/api"
+import type { Turma, Aluno, Course, Teacher } from "@/lib/types"
+import { Checkbox } from "@/components/ui/checkbox"
 
-const cursos = ['Música', 'Artes', 'Dança', 'Teatro', 'Esportes']
 const diasSemanaOptions = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
 export default function TurmasPage() {
   const [turmas, setTurmas] = useState<Turma[]>([])
-  const [loading, setLoading] = useState(true)
+  const [allStudents, setAllStudents] = useState<Aluno[]>([])
+  const [courses, setCourses] = useState<Course[]>([])
+  const [teachers, setTeachers] = useState<Teacher[]>([])
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [filtroCurso, setFiltroCurso] = useState<string>('todos')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTurma, setEditingTurma] = useState<Turma | null>(null)
+  const [sucesso, setSucesso] = useState('')
+  const [erro, setErro] = useState('')
   const [formData, setFormData] = useState({
     nome: '',
     curso: '',
-    horario: '',
+    courseId: '',
+    horarioInicio: '',
+    horarioTermino: '',
     diasSemana: [] as string[],
     professor: '',
+    professorId: '',
     capacidade: '',
     sala: '',
-    status: 'ativa' as 'ativa' | 'inativa'
+    status: 'ativa' as 'ativa' | 'inativa',
+    studentIds: [] as string[]
   })
 
   useEffect(() => {
-    store.getClasses()
-      .then((data) => setTurmas(data))
-      .catch((err) => console.error("Erro ao buscar turmas:", err))
-      .finally(() => setLoading(false))
+    const loadData = async () => {
+      try {
+        const [classes, students, fetchedCourses, fetchedTeachers] = await Promise.all([
+          getClasses(),
+          getStudents(),
+          getCourses(),
+          getTeachers()
+        ])
+        setTurmas(classes)
+        setAllStudents(students)
+        setCourses(fetchedCourses)
+        setTeachers(fetchedTeachers)
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+      }
+    }
+
+    loadData()
   }, [])
 
   const turmasFiltradas = turmas.filter(turma => {
@@ -85,28 +109,38 @@ export default function TurmasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    
+
     try {
-      const dataToSend = {
-        ...formData,
+      const payload = {
+        nome: formData.nome,
+        curso: formData.curso,
+        courseId: formData.courseId || null,
+        horario: `${formData.horarioInicio} - ${formData.horarioTermino}`,
+        diasSemana: formData.diasSemana,
+        professor: formData.professor,
+        professorId: formData.professorId || null,
         capacidade: Number(formData.capacidade),
-        status: formData.status as 'ativa' | 'inativa',
+        sala: formData.sala,
+        status: formData.status,
+        studentIds: formData.studentIds,
       }
-      
+
       if (editingTurma) {
-        await store.updateClass(editingTurma.id, dataToSend)
+        await updateClass(editingTurma.id, payload)
       } else {
-        await store.addClass(dataToSend)
+        await createClass(payload)
       }
-      const data = await store.getClasses()
-      setTurmas(data)
-      setModalOpen(false)
+
+      const classes = await getClasses()
+      setTurmas(classes)
       resetForm()
-    } catch (err) {
-      console.error("Erro ao salvar turma:", err)
-    } finally {
-      setLoading(false)
+      setModalOpen(false)
+      setSucesso(editingTurma ? 'Turma atualizada com sucesso!' : 'Turma criada com sucesso!')
+      setTimeout(() => { setSucesso(''); setErro('') }, 4000)
+    } catch (error) {
+      console.error("Erro ao salvar turma:", error)
+      setErro(error instanceof Error ? error.message : 'Erro ao salvar turma. Tente novamente.')
+      setTimeout(() => setErro(''), 4000)
     }
   }
 
@@ -114,43 +148,55 @@ export default function TurmasPage() {
     setFormData({
       nome: '',
       curso: '',
-      horario: '',
+      courseId: '',
+      horarioInicio: '',
+      horarioTermino: '',
       diasSemana: [],
       professor: '',
+      professorId: '',
       capacidade: '',
       sala: '',
-      status: 'ativa'
+      status: 'ativa',
+      studentIds: []
     })
     setEditingTurma(null)
   }
 
   const handleEdit = (turma: Turma) => {
+    const parts = (turma.horario || '').split(' - ')
+    const horarioInicio = parts[0] || ''
+    const horarioTermino = parts[1] || ''
+
     setEditingTurma(turma)
     setFormData({
       nome: turma.nome,
       curso: turma.curso,
-      horario: turma.horario,
+      courseId: turma.courseId ?? '',
+      horarioInicio,
+      horarioTermino,
       diasSemana: turma.diasSemana,
       professor: turma.professor,
+      professorId: turma.professorId ?? '',
       capacidade: String(turma.capacidade),
       sala: turma.sala,
-      status: turma.status
+      status: turma.status,
+      studentIds: turma.studentIds ?? []
     })
     setModalOpen(true)
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Tem certeza que deseja excluir esta turma?")) {
-      setLoading(true)
-      try {
-        await store.deleteClass(id)
-        const data = await store.getClasses()
-        setTurmas(data)
-      } catch (err) {
-        console.error("Erro ao excluir turma:", err)
-      } finally {
-        setLoading(false)
-      }
+    if (!confirm('Tem certeza que deseja excluir esta turma?')) return
+    try {
+      await deleteClass(id)
+      const classes = await getClasses()
+      setTurmas(classes)
+      setSucesso('Turma excluída com sucesso!')
+      setTimeout(() => setSucesso(''), 4000)
+    } catch (error) {
+      console.error("Erro ao excluir turma:", error)
+      setErro(error instanceof Error ? error.message : 'Erro ao excluir turma.')
+      setTimeout(() => setErro(''), 4000)
     }
   }
 
@@ -164,25 +210,18 @@ export default function TurmasPage() {
   }
 
   const getOcupacao = (turma: Turma) => {
+    if (!turma.capacidade || turma.capacidade <= 0) {
+      return { color: 'bg-green-500', text: 'Disponível' }
+    }
     const percent = (turma.alunosMatriculados / turma.capacidade) * 100
     if (percent >= 100) return { color: 'bg-destructive', text: 'Lotada' }
     if (percent >= 80) return { color: 'bg-yellow-500', text: 'Quase lotada' }
     return { color: 'bg-green-500', text: 'Disponível' }
   }
 
-  if (loading && turmas.length === 0) {
-    return (
-      <RequirePermission permission={PERMISSIONS.TURMAS}>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <Spinner className="h-6 w-6" />
-        </div>
-      </RequirePermission>
-    )
-  }
-
   return (
     <RequirePermission permission={PERMISSIONS.TURMAS}>
-    <div className="space-y-6 pt-12 md:pt-0">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -223,29 +262,51 @@ export default function TurmasPage() {
                   <div className="space-y-2">
                     <Label htmlFor="curso">Curso</Label>
                     <Select
-                      value={formData.curso}
-                      onValueChange={(value) => setFormData({...formData, curso: value})}
+                      value={formData.courseId}
+                      onValueChange={(value) => {
+                        const course = courses.find(c => c.id === value)
+                        const courseName = course ? course.name : ''
+                        setFormData(prev => ({
+                          ...prev,
+                          courseId: value,
+                          curso: courseName,
+                          studentIds: prev.studentIds.filter(id => {
+                            const student = allStudents.find(s => s.id === id)
+                            return student?.curso.split(',').map(c => c.trim()).includes(courseName)
+                          })
+                        }))
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        {cursos.map(curso => (
-                          <SelectItem key={curso} value={curso}>{curso}</SelectItem>
+                        {courses.map(course => (
+                          <SelectItem key={course.id} value={course.id}>{course.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="horario">Horário</Label>
-                    <Input
-                      id="horario"
-                      value={formData.horario}
-                      onChange={(e) => setFormData({...formData, horario: e.target.value})}
-                      placeholder="08:00 - 10:00"
-                      required
-                    />
+                    <Label>Horário (Início / Fim)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="time"
+                        value={formData.horarioInicio}
+                        onChange={(e) => setFormData({ ...formData, horarioInicio: e.target.value })}
+                        required
+                        className="w-full"
+                      />
+                      <span className="text-muted-foreground">-</span>
+                      <Input
+                        type="time"
+                        value={formData.horarioTermino}
+                        onChange={(e) => setFormData({ ...formData, horarioTermino: e.target.value })}
+                        required
+                        className="w-full"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -269,13 +330,28 @@ export default function TurmasPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="professor">Professor</Label>
-                  <Input
-                    id="professor"
-                    value={formData.professor}
-                    onChange={(e) => setFormData({...formData, professor: e.target.value})}
-                    placeholder="Nome do professor"
-                    required
-                  />
+                  <Select
+                    value={formData.professorId}
+                    onValueChange={(value) => {
+                      const teacher = teachers.find(t => t.id === value)
+                      setFormData(prev => ({
+                        ...prev,
+                        professorId: value,
+                        professor: teacher ? teacher.name : ''
+                      }))
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o professor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teachers.map(teacher => (
+                        <SelectItem key={teacher.id} value={teacher.id}>
+                          {teacher.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -318,13 +394,53 @@ export default function TurmasPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-2">
+                  <Label>Alunos da Turma</Label>
+                  <div className="border border-border rounded-md p-3 max-h-48 overflow-y-auto space-y-2 bg-background">
+                    {!formData.curso ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center">Selecione um curso para ver os alunos disponíveis</p>
+                    ) : (() => {
+                      const filteredStudents = allStudents.filter(aluno => aluno.curso.split(',').map(c => c.trim()).includes(formData.curso))
+                      return filteredStudents.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2 text-center">Nenhum aluno cadastrado neste curso</p>
+                      ) : (
+                        filteredStudents.map(aluno => {
+                          const isChecked = formData.studentIds.includes(aluno.id)
+                          return (
+                            <div key={aluno.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`student-${aluno.id}`}
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    studentIds: checked
+                                      ? [...prev.studentIds, aluno.id]
+                                      : prev.studentIds.filter(id => id !== aluno.id)
+                                  }))
+                                }}
+                              />
+                              <label
+                                htmlFor={`student-${aluno.id}`}
+                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                              >
+                                {aluno.nome}
+                              </label>
+                            </div>
+                          )
+                        })
+                      )
+                    })()}
+                  </div>
+                </div>
               </div>
 
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline">Cancelar</Button>
                 </DialogClose>
-                <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                <Button type="submit" className="bg-primary hover:bg-primary/90">
                   {editingTurma ? 'Salvar' : 'Cadastrar'}
                 </Button>
               </DialogFooter>
@@ -332,6 +448,20 @@ export default function TurmasPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Feedback Alerts */}
+      {sucesso && (
+        <Alert className="bg-success/10 border-success/30 text-success">
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>{sucesso}</AlertDescription>
+        </Alert>
+      )}
+      {erro && (
+        <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{erro}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -350,8 +480,8 @@ export default function TurmasPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos os cursos</SelectItem>
-            {cursos.map(curso => (
-              <SelectItem key={curso} value={curso}>{curso}</SelectItem>
+            {courses.map(course => (
+              <SelectItem key={course.id} value={course.name}>{course.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -487,7 +617,7 @@ export default function TurmasPage() {
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div 
                       className={`h-full ${ocupacao.color} transition-all`}
-                      style={{ width: `${Math.min((turma.alunosMatriculados / turma.capacidade) * 100, 100)}%` }}
+                      style={{ width: `${turma.capacidade && turma.capacidade > 0 ? Math.min((turma.alunosMatriculados / turma.capacidade) * 100, 100) : 0}%` }}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">{ocupacao.text}</p>
@@ -513,3 +643,5 @@ export default function TurmasPage() {
     </RequirePermission>
   )
 }
+
+

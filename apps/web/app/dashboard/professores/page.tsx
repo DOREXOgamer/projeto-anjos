@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import {
   Table,
@@ -23,12 +24,30 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { UserPlus, ShieldCheck, Users, KeyRound } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { 
+  UserPlus, 
+  ShieldCheck, 
+  Users, 
+  KeyRound, 
+  Edit2, 
+  Trash2, 
+  MoreVertical, 
+  Lock, 
+  UserMinus, 
+  UserCheck 
+} from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { AccessDenied } from "@/components/auth/access-denied"
 import { Spinner } from "@/components/ui/spinner"
 import { API_URL, getStoredToken } from "@/lib/auth"
 import { PERMISSIONS, type Permission } from "@/lib/permissions"
+import { updateTeacher, deleteTeacher, resetPassword } from "@/lib/api"
 
 const permissionOptions: Array<{ value: Permission; label: string; description: string }> = [
   { value: PERMISSIONS.ALUNOS, label: "Alunos", description: "Cadastrar e editar alunos" },
@@ -44,6 +63,7 @@ type Teacher = {
   name: string
   email: string
   permissions: string[]
+  active: boolean
   createdAt: string
 }
 
@@ -52,6 +72,12 @@ export default function ProfessoresPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
+  
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false)
+  const [resettingTeacher, setResettingTeacher] = useState<Teacher | null>(null)
+  const [newPassword, setNewPassword] = useState("")
+
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [saving, setSaving] = useState(false)
@@ -136,6 +162,62 @@ export default function ProfessoresPage() {
       password: "",
       permissions: [],
     })
+    setEditingTeacher(null)
+  }
+
+  const handleEdit = (teacher: Teacher) => {
+    setEditingTeacher(teacher)
+    setForm({
+      name: teacher.name,
+      email: teacher.email,
+      password: "",
+      permissions: teacher.permissions as Permission[],
+    })
+    setDialogOpen(true)
+  }
+
+  const handleToggleActive = async (teacher: Teacher) => {
+    setError("")
+    setSuccess("")
+    try {
+      const data = await updateTeacher(teacher.id, { active: !teacher.active })
+      setTeachers(prev => prev.map(t => t.id === teacher.id ? data.user : t))
+      setSuccess(`Professor ${data.user.active ? 'ativado' : 'desativado'} com sucesso`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao alterar status do professor")
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Tem certeza que deseja excluir este professor?")) return
+    setError("")
+    setSuccess("")
+    try {
+      await deleteTeacher(id)
+      setTeachers(prev => prev.filter(t => t.id !== id))
+      setSuccess("Professor excluído com sucesso")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir professor")
+    }
+  }
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!resettingTeacher) return
+    setError("")
+    setSuccess("")
+    setSaving(true)
+    try {
+      await resetPassword(resettingTeacher.id, { password: newPassword })
+      setSuccess("Senha redefinida com sucesso")
+      setResetPasswordDialogOpen(false)
+      setNewPassword("")
+      setResettingTeacher(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao redefinir senha")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -144,35 +226,44 @@ export default function ProfessoresPage() {
     setSuccess("")
     setSaving(true)
 
-    const token = getStoredToken()
-    if (!token) {
-      setSaving(false)
-      setError("Sessão inválida. Faça login novamente.")
-      return
-    }
-
     try {
-      const res = await fetch(`${API_URL}/users/teachers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      if (editingTeacher) {
+        const data = await updateTeacher(editingTeacher.id, {
           name: form.name,
           email: form.email,
-          password: form.password,
           permissions: form.permissions,
-        }),
-      })
+        })
+        setTeachers((prev) => prev.map(t => t.id === editingTeacher.id ? data.user : t))
+        setSuccess("Professor atualizado com sucesso")
+      } else {
+        const token = getStoredToken()
+        if (!token) {
+          setError("Sessão inválida. Faça login novamente.")
+          setSaving(false)
+          return
+        }
+        const res = await fetch(`${API_URL}/users/teachers`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            password: form.password,
+            permissions: form.permissions,
+          }),
+        })
 
-      const data = (await res.json()) as { user?: Teacher; error?: string }
-      if (!res.ok || !data.user) {
-        throw new Error(data.error || "Não foi possível cadastrar o professor")
+        const data = (await res.json()) as { user?: Teacher; error?: string }
+        if (!res.ok || !data.user) {
+          throw new Error(data.error || "Não foi possível cadastrar o professor")
+        }
+
+        setTeachers((prev) => [data.user!, ...prev])
+        setSuccess("Professor cadastrado com sucesso")
       }
-
-      setTeachers((prev) => [data.user!, ...prev])
-      setSuccess("Professor cadastrado com sucesso")
       setDialogOpen(false)
       resetForm()
     } catch (err) {
@@ -202,8 +293,10 @@ export default function ProfessoresPage() {
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Cadastrar Professor</DialogTitle>
-              <DialogDescription>Defina os dados de acesso e as permissões.</DialogDescription>
+              <DialogTitle>{editingTeacher ? "Editar Professor" : "Cadastrar Professor"}</DialogTitle>
+              <DialogDescription>
+                {editingTeacher ? "Atualize os dados e permissões do professor." : "Defina os dados de acesso e as permissões."}
+              </DialogDescription>
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-4 mt-2">
@@ -227,17 +320,19 @@ export default function ProfessoresPage() {
                     required
                   />
                 </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <label className="text-sm font-medium">Senha inicial</label>
-                  <Input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="Mínimo 6 caracteres"
-                    minLength={6}
-                    required
-                  />
-                </div>
+                {!editingTeacher && (
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium">Senha inicial</label>
+                    <Input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder="Mínimo 6 caracteres"
+                      minLength={6}
+                      required
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -269,7 +364,7 @@ export default function ProfessoresPage() {
                   Cancelar
                 </Button>
                 <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={saving}>
-                  {saving ? "Salvando..." : "Cadastrar"}
+                  {saving ? "Salvando..." : (editingTeacher ? "Salvar" : "Cadastrar")}
                 </Button>
               </div>
             </form>
@@ -344,10 +439,51 @@ export default function ProfessoresPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                            <KeyRound className="h-3 w-3" />
-                            Ativo
-                          </span>
+                          <div className="flex items-center justify-end gap-2">
+                            <Badge variant={teacher.active ? "default" : "secondary"}>
+                              {teacher.active ? "Ativo" : "Inativo"}
+                            </Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEdit(teacher)}>
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  setResettingTeacher(teacher)
+                                  setResetPasswordDialogOpen(true)
+                                }}>
+                                  <Lock className="h-4 w-4 mr-2" />
+                                  Redefinir Senha
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleActive(teacher)}>
+                                  {teacher.active ? (
+                                    <>
+                                      <UserMinus className="h-4 w-4 mr-2 text-warning" />
+                                      Desativar
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserCheck className="h-4 w-4 mr-2 text-success" />
+                                      Ativar
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => handleDelete(teacher.id)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -358,6 +494,38 @@ export default function ProfessoresPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Redefinir Senha</DialogTitle>
+            <DialogDescription>
+              Redefinir a senha do professor <strong>{resettingTeacher?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleResetPassword} className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nova Senha</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                minLength={6}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setResetPasswordDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={saving}>
+                {saving ? "Salvando..." : "Redefinir"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

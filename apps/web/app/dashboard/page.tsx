@@ -3,10 +3,9 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, UserCheck, BookOpen, TrendingUp } from "lucide-react"
-import { store } from "@/lib/store"
+import { getStudentsStats, getReportsStats, type StudentStats } from "@/lib/api"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
-import { Spinner } from "@/components/ui/spinner"
 
 const chartConfig = {
   presentes: {
@@ -19,78 +18,102 @@ const chartConfig = {
   },
 }
 
+interface DashboardData {
+  presentesHoje: number
+  totalAlunos: number
+  novosCadastros: number
+  atividadesRecentes: Array<{
+    tipo: string
+    descricao: string
+    tempo: string
+  }>
+}
+
 export default function DashboardPage() {
-  const [loading, setLoading] = useState(true)
-  const [totalAlunos, setTotalAlunos] = useState(0)
-  const [presentesHoje, setPresentesHoje] = useState(0)
-  const [aulasDoDia, setAulasDoDia] = useState(0)
-  const [presencaSemanal, setPresencaSemanal] = useState<{ dia: string; presentes: number; ausentes: number }[]>([])
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+  const [reportsData, setReportsData] = useState<any | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    store.getStatsAndChart()
-      .then((data) => {
-        setTotalAlunos(data.stats.totalAlunos)
-        setPresentesHoje(data.stats.presentesHoje)
-        setAulasDoDia(data.stats.aulasDoDia)
-        setPresencaSemanal(data.weeklyPresenca)
+    Promise.all([getStudentsStats(), getReportsStats()])
+      .then(([stats, reports]) => {
+        const hoje = new Date()
+        const atividadesRecentes = stats.recentStudents.slice(0, 4).map((student) => {
+          const createdDate = new Date(student.createdAt)
+          const diffTime = Math.abs(hoje.getTime() - createdDate.getTime())
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+          let tempo = diffDays === 1 ? "1 dia atrás" : `${diffDays} dias atrás`
+          if (diffDays === 0) tempo = "hoje"
+          return {
+            tipo: "cadastro",
+            descricao: `Novo aluno cadastrado: ${student.name}`,
+            tempo
+          }
+        })
+
+        setDashboardData({
+          totalAlunos: stats.totalCount,
+          novosCadastros: stats.newRegistrations7d,
+          presentesHoje: stats.presentToday || 0,
+          atividadesRecentes
+        })
+        setReportsData(reports)
       })
-      .catch((err) => console.error("Erro ao buscar dados do dashboard:", err))
-      .finally(() => setLoading(false))
+      .catch((err) => {
+        console.error(err)
+        setError("Erro ao carregar dados. Verifique a conexão com o servidor.")
+      })
   }, [])
 
-  const taxaPresenca = totalAlunos > 0 ? `${Math.round((presentesHoje / totalAlunos) * 100)}%` : "0%"
+  const totalAlunos = dashboardData?.totalAlunos || 0
+  const novosCadastros = dashboardData?.novosCadastros || 0
+  const atividadesRecentes = dashboardData?.atividadesRecentes || []
+  const totalPresentes = dashboardData?.presentesHoje || 0
+  
 
-  const stats = [
+  const statCards = [
     {
       title: "Total de Alunos",
-      value: totalAlunos,
+      value: totalAlunos.toString(),
       icon: Users,
       color: "text-primary",
       bgColor: "bg-primary/10",
     },
     {
-      title: "Presentes Hoje",
-      value: presentesHoje,
-      icon: UserCheck,
+      title: "Novos Cadastros (7d)",
+      value: novosCadastros.toString(),
+      icon: Users,
       color: "text-success",
       bgColor: "bg-success/10",
     },
     {
-      title: "Aulas do Dia",
-      value: aulasDoDia,
-      icon: BookOpen,
+      title: "Presentes Hoje",
+      value: totalPresentes.toString(),
+      icon: UserCheck,
       color: "text-chart-3",
       bgColor: "bg-chart-3/10",
     },
     {
-      title: "Taxa de Presença",
-      value: taxaPresenca,
-      icon: TrendingUp,
+      title: "Turmas Ativas",
+      value: (reportsData?.activeClasses ?? 0).toString(),
+      icon: BookOpen,
       color: "text-warning",
       bgColor: "bg-warning/10",
     },
   ]
 
-  const atividadesRecentes = [
-    { tipo: "cadastro", descricao: "Dados sincronizados com o banco MongoDB Atlas", tempo: "Agora" },
-    { tipo: "cadastro", descricao: "Novo aluno cadastrado no sistema", tempo: "Recentemente" },
-    { tipo: "presenca", descricao: "Chamada diária de presença ativa", tempo: "Hoje" },
-    { tipo: "plano", descricao: "Planos de aula em sincronização", tempo: "Sempre ativo" },
-  ]
 
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Spinner className="h-6 w-6" />
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-6 pt-12 md:pt-0">
       {/* Header */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">Dashboard</h1>
+        {error && (
+          <p className="text-destructive font-medium mt-2 p-2 bg-destructive/10 rounded-md">
+            {error}
+          </p>
+        )}
         <p className="text-muted-foreground mt-1">
           Visão geral do Projeto Anjos Inocentes
         </p>
@@ -98,7 +121,7 @@ export default function DashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
+        {statCards.map((stat) => {
           const Icon = stat.icon
           return (
             <Card key={stat.title} className="border-border/50">
@@ -127,17 +150,19 @@ export default function DashboardPage() {
         {/* Attendance Chart */}
         <Card className="lg:col-span-2 border-border/50">
           <CardHeader>
-            <CardTitle>Presença Semanal</CardTitle>
+            <CardTitle>Frequência Mensal (%)</CardTitle>
             <CardDescription>
-              Acompanhamento de presença dos alunos na última semana
+              Acompanhamento da taxa de presença dos alunos nos últimos 6 meses
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={presencaSemanal}>
+                <BarChart data={reportsData?.presencaMensal || [
+                  { mes: "Hoje", presentes: totalPresentes ? Math.round((totalPresentes / totalAlunos) * 100) : 0, ausentes: totalPresentes ? 100 - Math.round((totalPresentes / totalAlunos) * 100) : 100 }
+                ]}> 
                   <XAxis 
-                    dataKey="dia" 
+                    dataKey="mes" 
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
@@ -146,6 +171,7 @@ export default function DashboardPage() {
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
+                    unit="%"
                   />
                   <Tooltip content={<ChartTooltipContent />} />
                   <Legend />
@@ -153,13 +179,13 @@ export default function DashboardPage() {
                     dataKey="presentes" 
                     fill="var(--color-success)" 
                     radius={[4, 4, 0, 0]}
-                    name="Presentes"
+                    name="Presentes (%)"
                   />
                   <Bar 
                     dataKey="ausentes" 
                     fill="var(--color-destructive)" 
                     radius={[4, 4, 0, 0]}
-                    name="Ausentes"
+                    name="Ausentes (%)"
                   />
                 </BarChart>
               </ResponsiveContainer>

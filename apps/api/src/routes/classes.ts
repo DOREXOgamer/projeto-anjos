@@ -8,9 +8,11 @@ const router = Router()
 const classSchema = z.object({
   nome: z.string().min(1),
   curso: z.string().min(1),
+  courseId: z.string().or(z.literal("")).optional(),
   horario: z.string().min(1),
   diasSemana: z.array(z.string()),
   professor: z.string().min(1),
+  professorId: z.string().or(z.literal("")).optional(),
   capacidade: z.number().int().positive(),
   sala: z.string().min(1),
   status: z.enum(["ativa", "inativa"]),
@@ -27,9 +29,11 @@ router.get("/", requireAuth, async (_req, res) => {
     id: c._id.toString(),
     nome: c.nome,
     curso: c.curso,
+    courseId: c.courseId || "",
     horario: c.horario,
     diasSemana: c.diasSemana,
     professor: c.professor,
+    professorId: c.professorId || "",
     capacidade: c.capacidade,
     alunosMatriculados: c.alunosMatriculados || 0,
     sala: c.sala,
@@ -85,11 +89,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
 
   await db.collection("classes").deleteOne({ _id: new ObjectId(id) })
   
-  // Clean up any enrollments, attendance, and lesson plans for this class
-  await db.collection("enrollments").deleteMany({ classId: new ObjectId(id) })
-  await db.collection("attendances").deleteMany({ classId: new ObjectId(id) })
-  await db.collection("lessons").deleteMany({ classId: new ObjectId(id) })
-  await db.collection("events").deleteMany({ classId: new ObjectId(id) })
+  // Clean up cascade: attendance and lessons use classId as string
+  await db.collection("attendances").deleteMany({ classId: id })
+  await db.collection("lessons").deleteMany({ classId: id })
+  await db.collection("events").deleteMany({ turmaId: id })
 
   return res.json({ success: true })
 })

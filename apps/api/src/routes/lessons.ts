@@ -7,7 +7,9 @@ const router = Router()
 
 const lessonSchema = z.object({
   data: z.string().min(1),
+  endDate: z.string().or(z.literal("")).optional(),
   turma: z.string().min(1),
+  classId: z.string().or(z.literal("")).optional(),
   disciplina: z.string().min(1),
   conteudo: z.string().min(1),
   observacoes: z.string().or(z.literal("")).optional(),
@@ -23,7 +25,9 @@ router.get("/", requireAuth, async (_req, res) => {
   const lessons = lessonsList.map((l: any) => ({
     id: l._id.toString(),
     data: l.data,
+    endDate: l.endDate || "",
     turma: l.turma,
+    classId: l.classId || "",
     disciplina: l.disciplina,
     conteudo: l.conteudo,
     observacoes: l.observacoes || "",

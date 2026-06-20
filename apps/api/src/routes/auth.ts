@@ -46,6 +46,7 @@ router.post("/register", async (req, res) => {
     passwordHash,
     role,
     permissions: [],
+    active: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   }
@@ -63,6 +64,7 @@ router.post("/register", async (req, res) => {
       email: newUser.email,
       role: newUser.role,
       permissions: newUser.permissions,
+      active: true,
     },
   })
 })
@@ -74,6 +76,10 @@ router.post("/login", async (req, res) => {
 
   if (!userDoc) {
     return res.status(401).json({ error: "Invalid credentials" })
+  }
+
+  if (userDoc.active === false) {
+    return res.status(403).json({ error: "Sua conta está desativada. Entre em contato com a administração." })
   }
 
   const valid = await bcrypt.compare(data.password, userDoc.passwordHash)
@@ -92,6 +98,7 @@ router.post("/login", async (req, res) => {
       email: userDoc.email,
       role: userDoc.role,
       permissions: userDoc.permissions || [],
+      active: userDoc.active !== false,
     },
   })
 })
@@ -103,12 +110,16 @@ router.get("/me", requireAuth, async (req: AuthRequest, res) => {
     try {
       const userDoc = await db.collection("users").findOne({ _id: new ObjectId(req.user.sub) })
       if (userDoc) {
+        if (userDoc.active === false) {
+          return res.status(403).json({ error: "Sua conta está desativada" })
+        }
         user = {
           id: userDoc._id.toString(),
           name: userDoc.name,
           email: userDoc.email,
           role: userDoc.role,
           permissions: userDoc.permissions || [],
+          active: true,
           createdAt: userDoc.createdAt,
         }
       }

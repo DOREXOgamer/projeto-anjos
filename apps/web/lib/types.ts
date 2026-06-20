@@ -7,6 +7,8 @@ export interface Aluno {
   telefone: string
   endereco: string
   curso: string
+  classId?: string | null
+  classIds?: string[]
   createdAt: string
 }
 
@@ -20,10 +22,13 @@ export interface Presenca {
 export interface PlanoAula {
   id: string
   data: string
+  endDate?: string
   turma: string
+  classId?: string
   disciplina: string
   conteudo: string
   observacoes: string
+  files?: string[]
   createdAt: string
 }
 
@@ -37,13 +42,16 @@ export interface Turma {
   id: string
   nome: string
   curso: string
+  courseId?: string
   horario: string
   diasSemana: string[]
   professor: string
+  professorId?: string
   capacidade: number
   alunosMatriculados: number
   sala: string
   status: 'ativa' | 'inativa'
+  studentIds?: string[]
   createdAt: string
 }
 
@@ -55,4 +63,31 @@ export interface Evento {
   horario: string
   tipo: 'aula' | 'evento' | 'feriado' | 'reuniao'
   turmaId?: string
+}
+
+export interface Course {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface Teacher {
+  id: string
+  name: string
+  email: string
+  permissions: string[]
+  active: boolean
+  createdAt: string
+}
+
+export interface Announcement {
+  id: string
+  title: string
+  body: string
+  author?: {
+    id: string
+    name: string
+    role: string
+  } | null
+  createdAt: string
 }

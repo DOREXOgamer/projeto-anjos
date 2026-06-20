@@ -1,6 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { updateProfile, changePassword, getReportsStats } from "@/lib/api"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Settings,
   User,
@@ -33,11 +35,11 @@ import { AccessDenied } from "@/components/auth/access-denied"
 import { Spinner } from "@/components/ui/spinner"
 
 export default function ConfiguracoesPage() {
-  const { user, loading } = useAuth()
+  const { user, loading, updateUserState } = useAuth()
   const [perfil, setPerfil] = useState({
-    nome: 'Administrador',
-    email: 'admin@anjosinocentes.org.br',
-    cargo: 'Coordenador Pedagógico',
+    nome: '',
+    email: '',
+    cargo: '',
   })
 
   const [notificacoes, setNotificacoes] = useState({
@@ -55,6 +57,36 @@ export default function ConfiguracoesPage() {
   })
 
   const [salvando, setSalvando] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [passwordError, setPasswordError] = useState("")
+  const [passwordSuccess, setPasswordSuccess] = useState("")
+  const [stats, setStats] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (user) {
+      setPerfil({
+        nome: user.name || "",
+        email: user.email || "",
+        cargo: user.role === "DIRECTOR" ? "Diretor" : "Professor",
+      })
+    }
+  }, [user])
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const data = await getReportsStats()
+        setStats(data)
+      } catch (error) {
+        console.error("Erro ao carregar estatísticas do sistema:", error)
+      }
+    }
+    loadStats()
+  }, [])
 
   if (loading) {
     return (
@@ -72,11 +104,43 @@ export default function ConfiguracoesPage() {
     return <AccessDenied />
   }
 
-  const handleSalvar = () => {
+  const handleSalvar = async () => {
     setSalvando(true)
-    setTimeout(() => {
+    setError("")
+    setSuccess("")
+    try {
+      const data = await updateProfile({ name: perfil.nome, email: perfil.email })
+      updateUserState(data.user)
+      setSuccess("Perfil updated successfully!")
+      setTimeout(() => setSuccess(""), 4000)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : "Erro ao atualizar perfil")
+    } finally {
       setSalvando(false)
-    }, 1000)
+    }
+  }
+
+  const handleAlterarSenha = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordError("")
+    setPasswordSuccess("")
+
+    if (newPassword.length < 6) {
+      setPasswordError("A nova senha deve ter no mínimo 6 caracteres")
+      return
+    }
+
+    try {
+      await changePassword({ currentPassword, newPassword })
+      setPasswordSuccess("Senha alterada com sucesso!")
+      setCurrentPassword("")
+      setNewPassword("")
+      setTimeout(() => setPasswordSuccess(""), 4000)
+    } catch (err) {
+      console.error(err)
+      setPasswordError(err instanceof Error ? err.message : "Erro ao alterar senha")
+    }
   }
 
   return (
@@ -93,6 +157,17 @@ export default function ConfiguracoesPage() {
           {salvando ? 'Salvando...' : 'Salvar Alterações'}
         </Button>
       </div>
+
+      {error && (
+        <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-success/10 border-success/30 text-success">
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      )}
 
       <Tabs defaultValue="perfil" className="space-y-6">
         <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 h-auto gap-2 bg-transparent p-0">
@@ -188,18 +263,44 @@ export default function ConfiguracoesPage() {
               </CardTitle>
               <CardDescription>Gerencie sua senha e autenticação</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="senha-atual">Senha Atual</Label>
-                  <Input id="senha-atual" type="password" placeholder="••••••••" />
+            <CardContent>
+              <form onSubmit={handleAlterarSenha} className="space-y-4">
+                {passwordError && (
+                  <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
+                    <AlertDescription>{passwordError}</AlertDescription>
+                  </Alert>
+                )}
+                {passwordSuccess && (
+                  <Alert className="bg-success/10 border-success/30 text-success">
+                    <AlertDescription>{passwordSuccess}</AlertDescription>
+                  </Alert>
+                )}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="senha-atual">Senha Atual</Label>
+                    <Input
+                      id="senha-atual"
+                      type="password"
+                      placeholder="••••••••"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="nova-senha">Nova Senha</Label>
+                    <Input
+                      id="nova-senha"
+                      type="password"
+                      placeholder="••••••••"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="nova-senha">Nova Senha</Label>
-                  <Input id="nova-senha" type="password" placeholder="••••••••" />
-                </div>
-              </div>
-              <Button variant="outline">Alterar Senha</Button>
+                <Button type="submit" variant="outline">Alterar Senha</Button>
+              </form>
             </CardContent>
           </Card>
         </TabsContent>
@@ -387,19 +488,19 @@ export default function ConfiguracoesPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="p-4 rounded-lg bg-accent/50">
                   <p className="text-sm text-muted-foreground">Alunos Cadastrados</p>
-                  <p className="text-2xl font-bold">145</p>
+                  <p className="text-2xl font-bold">{stats?.totalStudents ?? 0}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-accent/50">
                   <p className="text-sm text-muted-foreground">Turmas Ativas</p>
-                  <p className="text-2xl font-bold">5</p>
+                  <p className="text-2xl font-bold">{stats?.activeClasses ?? 0}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-accent/50">
                   <p className="text-sm text-muted-foreground">Planos de Aula</p>
-                  <p className="text-2xl font-bold">32</p>
+                  <p className="text-2xl font-bold">{stats?.totalLessonPlans ?? 0}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-accent/50">
                   <p className="text-sm text-muted-foreground">Registros de Presença</p>
-                  <p className="text-2xl font-bold">1.234</p>
+                  <p className="text-2xl font-bold">{stats?.totalAttendances ?? 0}</p>
                 </div>
               </div>
 

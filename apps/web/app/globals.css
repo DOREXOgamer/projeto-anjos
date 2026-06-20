@@ -135,3 +135,24 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  aside,
+  button,
+  .no-print,
+  nav,
+  header,
+  .flex.gap-2,
+  .SelectTrigger {
+    display: none !important;
+  }
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+}

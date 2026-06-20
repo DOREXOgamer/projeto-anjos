@@ -11,7 +11,22 @@ const studentSchema = z.object({
     telefone: z.string().min(1),
     endereco: z.string().min(1),
     curso: z.string().min(1),
+    classId: z.string().nullable().optional(),
+    classIds: z.array(z.string()).optional(),
 });
+async function updateClassEnrollmentCounts() {
+    const classes = await db.collection("classes").find().toArray();
+    for (const c of classes) {
+        const classIdStr = c._id.toString();
+        const count = await db.collection("students").countDocuments({
+            $or: [
+                { classId: classIdStr },
+                { classIds: classIdStr }
+            ]
+        });
+        await db.collection("classes").updateOne({ _id: c._id }, { $set: { alunosMatriculados: count } });
+    }
+}
 // GET /students - List all students
 router.get("/", requireAuth, async (_req, res) => {
     const studentsList = await db.collection("students")
@@ -27,6 +42,8 @@ router.get("/", requireAuth, async (_req, res) => {
         telefone: s.telefone,
         endereco: s.endereco,
         curso: s.curso,
+        classId: s.classId || null,
+        classIds: s.classIds || [],
         createdAt: s.createdAt,
     }));
     return res.json({ students });
@@ -40,6 +57,7 @@ router.post("/", requireAuth, async (req, res) => {
         updatedAt: new Date(),
     };
     const result = await db.collection("students").insertOne(newStudent);
+    await updateClassEnrollmentCounts();
     const student = {
         id: result.insertedId.toString(),
         ...newStudent,
@@ -55,6 +73,7 @@ router.put("/:id", requireAuth, async (req, res) => {
         updatedAt: new Date(),
     };
     await db.collection("students").updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    await updateClassEnrollmentCounts();
     return res.json({ success: true });
 });
 // DELETE /students/:id - Delete student
@@ -64,6 +83,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // Clean up any enrollments/attendance for this student
     await db.collection("enrollments").deleteMany({ studentId: new ObjectId(id) });
     await db.collection("attendances").deleteMany({ studentId: new ObjectId(id) });
+    await updateClassEnrollmentCounts();
     return res.json({ success: true });
 });
 export const studentsRouter = router;

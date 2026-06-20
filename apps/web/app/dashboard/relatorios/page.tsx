@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { getReportsStats } from "@/lib/api"
 import {
   BarChart3,
   Download,
@@ -39,32 +40,9 @@ import {
 import { useAuth } from "@/components/auth/auth-provider"
 import { AccessDenied } from "@/components/auth/access-denied"
 import { Spinner } from "@/components/ui/spinner"
+import { API_URL, getStoredToken } from "@/lib/auth"
 
-const presencaMensal = [
-  { mes: 'Jan', presentes: 85, ausentes: 15 },
-  { mes: 'Fev', presentes: 88, ausentes: 12 },
-  { mes: 'Mar', presentes: 82, ausentes: 18 },
-  { mes: 'Abr', presentes: 90, ausentes: 10 },
-  { mes: 'Mai', presentes: 87, ausentes: 13 },
-  { mes: 'Jun', presentes: 91, ausentes: 9 },
-]
 
-const matriculasMensais = [
-  { mes: 'Jan', matriculas: 12 },
-  { mes: 'Fev', matriculas: 8 },
-  { mes: 'Mar', matriculas: 15 },
-  { mes: 'Abr', matriculas: 6 },
-  { mes: 'Mai', matriculas: 10 },
-  { mes: 'Jun', matriculas: 4 },
-]
-
-const distribuicaoCursos = [
-  { nome: 'Música', alunos: 45, color: '#F97316' },
-  { nome: 'Artes', alunos: 32, color: '#3B82F6' },
-  { nome: 'Dança', alunos: 28, color: '#10B981' },
-  { nome: 'Teatro', alunos: 18, color: '#8B5CF6' },
-  { nome: 'Esportes', alunos: 22, color: '#F59E0B' },
-]
 
 const relatoriosDisponiveis = [
   {
@@ -101,8 +79,265 @@ export default function RelatoriosPage() {
   const [periodoPresenca, setPeriodoPresenca] = useState('semestre')
   const [periodoMatriculas, setPeriodoMatriculas] = useState('semestre')
   const { user, loading } = useAuth()
+  const [reportsData, setReportsData] = useState<any | null>(null)
+  const [loadingStats, setLoadingStats] = useState(true)
 
-  if (loading) {
+  const exportAlunosCSV = async () => {
+    try {
+      const res = await fetch(`${API_URL}/students`, {
+        headers: { Authorization: `Bearer ${getStoredToken()}` }
+      })
+      const data = await res.json()
+      const studentsList = data.students || []
+      
+      const headers = ["Nome", "CPF", "Data de Nascimento", "E-mail", "Telefone", "Endereço", "Curso", "Data de Cadastro"]
+      const rows = studentsList.map((s: any) => [
+        s.nome,
+        s.cpf,
+        s.dataNascimento,
+        s.email,
+        s.telefone,
+        s.endereco,
+        s.curso,
+        s.createdAt
+      ])
+      
+      const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map((r: any) => r.map((val: string) => `"${(val || '').replace(/"/g, '""')}"`).join(";"))].join("\n")
+      
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.setAttribute("href", url)
+      link.setAttribute("download", `alunos_ativos_${new Date().toISOString().split("T")[0]}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (err) {
+      console.error("Erro ao exportar alunos:", err)
+      alert("Erro ao exportar alunos")
+    }
+  }
+
+  const exportPresencaPDF = () => {
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) return
+    
+    const presencaLines = (reportsData?.presencaMensal || []).map((m: any) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${m.mes}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: green; font-weight: bold;">${m.presentes}%</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; color: red;">${m.ausentes}%</td>
+      </tr>
+    `).join("")
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Relatório de Presença Mensal - Projeto Anjos Inocentes</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #333; }
+            h1 { color: #f97316; margin-bottom: 5px; }
+            h2 { color: #555; font-size: 16px; margin-top: 0; margin-bottom: 30px; font-weight: normal; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background: #f3f4f6; padding: 12px 10px; text-align: left; border-bottom: 2px solid #ddd; }
+            .footer { margin-top: 50px; font-size: 12px; text-align: center; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <h1>Projeto Anjos Inocentes</h1>
+          <h2>Relatório de Presença Mensal - Gerado em ${new Date().toLocaleDateString('pt-BR')}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Mês</th>
+                <th style="text-align: right;">Presença Média (%)</th>
+                <th style="text-align: right;">Ausência Média (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${presencaLines}
+            </tbody>
+          </table>
+          <div class="footer">
+            Sistema de Gestão Acadêmica - Anjos Inocentes
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+  }
+
+  const exportTurmasOcupacaoPDF = async () => {
+    try {
+      const res = await fetch(`${API_URL}/classes`, {
+        headers: { Authorization: `Bearer ${getStoredToken()}` }
+      })
+      const data = await res.json()
+      const classesList = data.classes || []
+
+      const printWindow = window.open("", "_blank")
+      if (!printWindow) return
+
+      const rows = classesList.map((c: any) => {
+        const taxa = c.capacidade > 0 ? Math.round((c.alunosMatriculados / c.capacidade) * 100) : 0
+        return `
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${c.nome}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${c.curso}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center;">${c.alunosMatriculados}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center;">${c.capacidade}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; font-weight: bold; color: ${taxa > 85 ? 'red' : 'green'};">${taxa}%</td>
+          </tr>
+        `
+      }).join("")
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Ocupação das Turmas - Projeto Anjos Inocentes</title>
+            <style>
+              body { font-family: sans-serif; padding: 40px; color: #333; }
+              h1 { color: #f97316; margin-bottom: 5px; }
+              h2 { color: #555; font-size: 16px; margin-top: 0; margin-bottom: 30px; font-weight: normal; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th { background: #f3f4f6; padding: 12px 10px; text-align: left; border-bottom: 2px solid #ddd; }
+              .footer { margin-top: 50px; font-size: 12px; text-align: center; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+            </style>
+          </head>
+          <body>
+            <h1>Projeto Anjos Inocentes</h1>
+            <h2>Ocupação das Turmas - Gerado em ${new Date().toLocaleDateString('pt-BR')}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Turma</th>
+                  <th>Curso</th>
+                  <th style="text-align: center;">Alunos Matriculados</th>
+                  <th style="text-align: center;">Capacidade</th>
+                  <th style="text-align: right;">Taxa de Ocupação</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+            <div class="footer">
+              Sistema de Gestão Acadêmica - Anjos Inocentes
+            </div>
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              }
+            </script>
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+    } catch (err) {
+      console.error("Erro ao exportar ocupação:", err)
+      alert("Erro ao exportar ocupação")
+    }
+  }
+
+  const exportEventosPDF = async () => {
+    try {
+      const res = await fetch(`${API_URL}/events`, {
+        headers: { Authorization: `Bearer ${getStoredToken()}` }
+      })
+      const data = await res.json()
+      const eventsList = data.events || []
+
+      const printWindow = window.open("", "_blank")
+      if (!printWindow) return
+
+      const rows = eventsList.map((e: any) => `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #ddd;">${new Date(e.data + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #ddd;">${e.horario || 'Dia todo'}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${e.titulo}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #ddd; text-transform: uppercase; font-size: 11px;">${e.tipo}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #ddd; font-size: 13px; color: #666;">${e.descricao || ''}</td>
+        </tr>
+      `).join("")
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Agenda de Eventos - Projeto Anjos Inocentes</title>
+            <style>
+              body { font-family: sans-serif; padding: 40px; color: #333; }
+              h1 { color: #f97316; margin-bottom: 5px; }
+              h2 { color: #555; font-size: 16px; margin-top: 0; margin-bottom: 30px; font-weight: normal; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th { background: #f3f4f6; padding: 12px 10px; text-align: left; border-bottom: 2px solid #ddd; }
+              .footer { margin-top: 50px; font-size: 12px; text-align: center; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+            </style>
+          </head>
+          <body>
+            <h1>Projeto Anjos Inocentes</h1>
+            <h2>Agenda de Eventos - Gerado em ${new Date().toLocaleDateString('pt-BR')}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Horário</th>
+                  <th>Título</th>
+                  <th>Tipo</th>
+                  <th>Descrição</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+            <div class="footer">
+              Sistema de Gestão Acadêmica - Anjos Inocentes
+            </div>
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              }
+            </script>
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+    } catch (err) {
+      console.error("Erro ao exportar eventos:", err)
+      alert("Erro ao exportar eventos")
+    }
+  }
+
+  const handleExportRelatorio = (id: string) => {
+    if (id === 'presenca-mensal') exportPresencaPDF()
+    if (id === 'alunos-ativos') exportAlunosCSV()
+    if (id === 'turmas-ocupacao') exportTurmasOcupacaoPDF()
+    if (id === 'eventos-mes') exportEventosPDF()
+  }
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const stats = await getReportsStats()
+        setReportsData(stats)
+      } catch (error) {
+        console.error("Erro ao carregar relatórios:", error)
+      } finally {
+        setLoadingStats(false)
+      }
+    }
+    loadStats()
+  }, [])
+
+  if (loading || loadingStats) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Spinner className="h-6 w-6" />
@@ -118,11 +353,15 @@ export default function RelatoriosPage() {
     return <AccessDenied />
   }
 
-  const totalAlunos = distribuicaoCursos.reduce((acc, c) => acc + c.alunos, 0)
-  const mediaPresenca = Math.round(
-    presencaMensal.reduce((acc, m) => acc + m.presentes, 0) / presencaMensal.length,
-  )
-  const totalMatriculas = matriculasMensais.reduce((acc, m) => acc + m.matriculas, 0)
+  const distribuicaoCursos = reportsData?.courseDistribution ?? []
+  const presencaMensal = reportsData?.presencaMensal ?? []
+  const matriculasMensais = reportsData?.matriculasMensais ?? []
+
+  const totalAlunos = reportsData?.totalStudents ?? 0
+  const mediaPresenca = presencaMensal.length > 0
+    ? Math.round(presencaMensal.reduce((acc: number, m: any) => acc + m.presentes, 0) / presencaMensal.length)
+    : 0
+  const totalMatriculas = matriculasMensais.reduce((acc: number, m: any) => acc + m.matriculas, 0)
 
   return (
     <div className="space-y-6">
@@ -134,11 +373,11 @@ export default function RelatoriosPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => window.print()}>
             <Printer className="h-4 w-4 mr-2" />
             Imprimir
           </Button>
-          <Button className="bg-primary hover:bg-primary/90">
+          <Button className="bg-primary hover:bg-primary/90" onClick={exportAlunosCSV}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Todos
           </Button>
@@ -206,9 +445,9 @@ export default function RelatoriosPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Turmas Ativas</p>
-                <p className="text-2xl font-bold">5</p>
+                <p className="text-2xl font-bold">{reportsData?.activeClasses ?? 0}</p>
                 <div className="flex items-center gap-1 mt-1">
-                  <span className="text-xs text-muted-foreground">Capacidade: 85%</span>
+                  <span className="text-xs text-muted-foreground">Cadastradas no sistema</span>
                 </div>
               </div>
               <div className="p-3 rounded-full bg-purple-500/10">
@@ -280,10 +519,10 @@ export default function RelatoriosPage() {
                     cx="50%"
                     cy="50%"
                     outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ nome, percent }) => `${nome} ${(percent * 100).toFixed(0)}%`}
                     labelLine={false}
                   >
-                    {distribuicaoCursos.map((entry, index) => (
+                    {distribuicaoCursos.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -298,7 +537,7 @@ export default function RelatoriosPage() {
               </ResponsiveContainer>
             </div>
             <div className="flex flex-wrap justify-center gap-3 mt-2">
-              {distribuicaoCursos.map((curso) => (
+              {distribuicaoCursos.map((curso: any) => (
                 <div key={curso.nome} className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: curso.color }} />
                   <span className="text-xs text-muted-foreground">{curso.nome}</span>
@@ -370,7 +609,8 @@ export default function RelatoriosPage() {
               return (
                 <button
                   key={relatorio.id}
-                  className="flex items-start gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent/50 transition-colors text-left group"
+                  onClick={() => handleExportRelatorio(relatorio.id)}
+                  className="flex items-start gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent/50 transition-colors text-left group w-full"
                 >
                   <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
                     <Icon className="h-5 w-5 text-primary" />

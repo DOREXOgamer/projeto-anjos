@@ -10,6 +10,7 @@ const createSchema = z.object({
   body: z.string().min(1),
 })
 
+// GET /announcements - List all announcements (all authenticated users)
 router.get("/", requireAuth, async (_req, res) => {
   const announcementsList = await db.collection("announcements")
     .aggregate([
@@ -47,6 +48,7 @@ router.get("/", requireAuth, async (_req, res) => {
   return res.json({ announcements })
 })
 
+// POST /announcements - Create announcement (Director only)
 router.post(
   "/",
   requireAuth,
@@ -74,6 +76,18 @@ router.post(
     }
 
     return res.status(201).json({ announcement })
+  },
+)
+
+// DELETE /announcements/:id - Delete announcement (Director only)
+router.delete(
+  "/:id",
+  requireAuth,
+  requireRole(Role.DIRECTOR),
+  async (req, res) => {
+    const { id } = req.params
+    await db.collection("announcements").deleteOne({ _id: new ObjectId(id) })
+    return res.json({ success: true })
   },
 )
 

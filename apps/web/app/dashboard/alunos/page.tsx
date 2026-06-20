@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
+import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { 
   Select,
@@ -32,11 +33,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, Search, CheckCircle, Users } from "lucide-react"
-import { store } from "@/lib/store"
-import type { Aluno } from "@/lib/types"
-import { Spinner } from "@/components/ui/spinner"
-
-const cursos = ["Música", "Artes", "Dança", "Teatro", "Esportes", "Informática"]
+import { getStudents, createStudent, updateStudent, deleteStudent, getClasses, getCourses } from "@/lib/api"
+import type { Aluno, Turma, Course } from "@/lib/types"
+import { Checkbox } from "@/components/ui/checkbox"
 
 // Máscaras para inputs
 const formatCPF = (value: string) => {
@@ -46,6 +45,29 @@ const formatCPF = (value: string) => {
     .replace(/(\d{3})(\d)/, '$1.$2')
     .replace(/(\d{3})(\d{1,2})/, '$1-$2')
     .replace(/(-\d{2})\d+?$/, '$1')
+}
+
+const isValidCPF = (cpf: string): boolean => {
+  const cleanCpf = cpf.replace(/\D/g, '')
+  if (cleanCpf.length !== 11 || /^(\d)\1+$/.test(cleanCpf)) return false
+
+  let sum = 0
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCpf.charAt(i)) * (10 - i)
+  }
+  let remainder = (sum * 10) % 11
+  if (remainder === 10 || remainder === 11) remainder = 0
+  if (remainder !== parseInt(cleanCpf.charAt(9))) return false
+
+  sum = 0
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCpf.charAt(i)) * (11 - i)
+  }
+  remainder = (sum * 10) % 11
+  if (remainder === 10 || remainder === 11) remainder = 0
+  if (remainder !== parseInt(cleanCpf.charAt(10))) return false
+
+  return true
 }
 
 const formatTelefone = (value: string) => {
@@ -58,8 +80,10 @@ const formatTelefone = (value: string) => {
 
 export default function AlunosPage() {
   const [alunos, setAlunos] = useState<Aluno[]>([])
-  const [loading, setLoading] = useState(true)
+  const [classes, setClasses] = useState<Turma[]>([])
+  const [cursosList, setCursosList] = useState<Course[]>([])
   const [filtro, setFiltro] = useState("")
+  const [filtroCurso, setFiltroCurso] = useState("todos")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAluno, setEditingAluno] = useState<Aluno | null>(null)
   const [sucesso, setSucesso] = useState("")
@@ -73,13 +97,29 @@ export default function AlunosPage() {
     telefone: "",
     endereco: "",
     curso: "",
+    classIds: [] as string[],
   })
+  const [cpfValid, setCpfValid] = useState<boolean | null>(null)
+  const [cpfValidating, setCpfValidating] = useState(false)
+  const [cpfError, setCpfError] = useState("")
 
   useEffect(() => {
-    store.getAlunos()
-      .then((data) => setAlunos(data))
-      .catch((err) => console.error("Erro ao buscar alunos:", err))
-      .finally(() => setLoading(false))
+    const loadData = async () => {
+      try {
+        const [students, classesData, coursesData] = await Promise.all([
+          getStudents(),
+          getClasses(),
+          getCourses()
+        ])
+        setAlunos(students)
+        setClasses(classesData)
+        setCursosList(coursesData)
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+      }
+    }
+
+    loadData()
   }, [])
 
   const resetForm = () => {
@@ -91,32 +131,83 @@ export default function AlunosPage() {
       telefone: "",
       endereco: "",
       curso: "",
+      classIds: [],
     })
     setEditingAluno(null)
+    setCpfValid(null)
+    setCpfError("")
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    
+
+    const cleanCpf = form.cpf.replace(/\D/g, '')
+    if (cleanCpf.length === 11 && cpfValid !== true) {
+      setCpfError("Valide o CPF antes de cadastrar")
+      return
+    }
+
     try {
-      if (editingAluno) {
-        await store.updateAluno(editingAluno.id, form)
-        setSucesso("Aluno atualizado com sucesso!")
-      } else {
-        await store.addAluno(form)
-        setSucesso("Aluno cadastrado com sucesso!")
+      // Derive curso from selected classes
+      const selectedClasses = classes.filter(c => form.classIds.includes(c.id))
+      const cursoNames = [...new Set(selectedClasses.map(c => c.curso).filter(Boolean))]
+      const curso = cursoNames.join(", ") || form.curso || ""
+
+      const payload = {
+        ...form,
+        curso,
+        classIds: form.classIds,
+        classId: form.classIds[0] || null
       }
-      const data = await store.getAlunos()
-      setAlunos(data)
+      await createStudent(payload)
+      setSucesso("Aluno cadastrado com sucesso!")
+      const students = await getStudents()
+      setAlunos(students)
       setDialogOpen(false)
       resetForm()
-    } catch (err) {
-      console.error("Erro ao salvar aluno:", err)
-    } finally {
-      setLoading(false)
-      setTimeout(() => setSucesso(""), 3000)
+    } catch (error) {
+      console.error("Erro ao salvar aluno:", error)
+      setSucesso("Erro ao salvar aluno. Tente novamente.")
     }
+
+    setTimeout(() => setSucesso(""), 3000)
+  }
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const cleanCpf = form.cpf.replace(/\D/g, '')
+    if (cleanCpf.length === 11 && cpfValid !== true) {
+      setCpfError("Valide o CPF antes de salvar")
+      return
+    }
+
+    try {
+      if (editingAluno) {
+        // Derive curso from selected classes
+        const selectedClasses = classes.filter(c => form.classIds.includes(c.id))
+        const cursoNames = [...new Set(selectedClasses.map(c => c.curso).filter(Boolean))]
+        const curso = cursoNames.join(", ") || form.curso || ""
+
+        const payload = {
+          ...form,
+          curso,
+          classIds: form.classIds,
+          classId: form.classIds[0] || null
+        }
+        await updateStudent(editingAluno.id, payload)
+        setSucesso("Aluno atualizado com sucesso!")
+        const students = await getStudents()
+        setAlunos(students)
+        setDialogOpen(false)
+        resetForm()
+      }
+    } catch (error) {
+      console.error("Erro ao salvar aluno:", error)
+      setSucesso("Erro ao salvar aluno. Tente novamente.")
+    }
+
+    setTimeout(() => setSucesso(""), 3000)
   }
 
   const handleEdit = (aluno: Aluno) => {
@@ -129,51 +220,49 @@ export default function AlunosPage() {
       telefone: aluno.telefone,
       endereco: aluno.endereco,
       curso: aluno.curso,
+      classIds: aluno.classIds ?? [],
     })
+    setCpfValid(true) // Editing implies it was valid
     setDialogOpen(true)
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Tem certeza que deseja excluir este aluno?")) {
-      setLoading(true)
-      try {
-        await store.deleteAluno(id)
-        const data = await store.getAlunos()
-        setAlunos(data)
-        setSucesso("Aluno excluído com sucesso!")
-      } catch (err) {
-        console.error("Erro ao excluir aluno:", err)
-      } finally {
-        setLoading(false)
-        setTimeout(() => setSucesso(""), 3000)
-      }
+    if (!confirm("Tem certeza que deseja excluir este aluno?")) {
+      return
     }
+
+    try {
+      await deleteStudent(id)
+      const students = await getStudents()
+      setAlunos(students)
+      setSucesso("Aluno excluído com sucesso!")
+    } catch (error) {
+      console.error("Erro ao excluir aluno:", error)
+      setSucesso("Erro ao excluir aluno. Tente novamente.")
+    }
+
+    setTimeout(() => setSucesso(""), 3000)
   }
 
-  const alunosFiltrados = alunos.filter(aluno => 
-    aluno.nome.toLowerCase().includes(filtro.toLowerCase()) ||
-    aluno.curso.toLowerCase().includes(filtro.toLowerCase())
-  )
-
-  if (loading && alunos.length === 0) {
-    return (
-      <RequirePermission permission={PERMISSIONS.ALUNOS}>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <Spinner className="h-6 w-6" />
-        </div>
-      </RequirePermission>
-    )
-  }
+  const alunosFiltrados = alunos.filter(aluno => {
+    const matchBusca = aluno.nome.toLowerCase().includes(filtro.toLowerCase())
+    
+    // Check if filter course matches any of student's classes courses or student.curso string
+    const studentCourses = aluno.curso ? aluno.curso.split(", ").map(c => c.trim()) : []
+    const matchCurso = filtroCurso === "todos" || studentCourses.includes(filtroCurso)
+    
+    return matchBusca && matchCurso
+  })
 
   return (
     <RequirePermission permission={PERMISSIONS.ALUNOS}>
-    <div className="space-y-6 pt-12 md:pt-0">
+    <div className="space-y-6 pt-12 md:pt-0 animate-in fade-in duration-300">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Alunos</h1>
           <p className="text-muted-foreground mt-1">
-            Gerencie os alunos cadastrados no projeto
+            Gerencie as matrículas e dados pessoais dos alunos
           </p>
         </div>
         
@@ -182,26 +271,26 @@ export default function AlunosPage() {
           if (!open) resetForm()
         }}>
           <DialogTrigger asChild>
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-md">
               <Plus className="h-4 w-4 mr-2" />
               Novo Aluno
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-background border border-border">
             <DialogHeader>
-              <DialogTitle>
+              <DialogTitle className="text-foreground">
                 {editingAluno ? "Editar Aluno" : "Cadastrar Novo Aluno"}
               </DialogTitle>
-              <DialogDescription>
-                Preencha os dados do aluno abaixo
+              <DialogDescription className="text-muted-foreground text-xs">
+                Preencha os dados do aluno e selecione as turmas desejadas
               </DialogDescription>
             </DialogHeader>
             
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            <form onSubmit={editingAluno ? handleUpdate : handleCreate} className="space-y-4 mt-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="nome">Nome Completo *</FieldLabel>
+                    <FieldLabel htmlFor="nome" className="text-foreground font-medium">Nome Completo *</FieldLabel>
                     <Input
                       id="nome"
                       value={form.nome}
@@ -214,21 +303,50 @@ export default function AlunosPage() {
 
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="cpf">CPF *</FieldLabel>
+                    <FieldLabel htmlFor="cpf" className="text-foreground font-medium">CPF *</FieldLabel>
                     <Input
                       id="cpf"
                       value={form.cpf}
-                      onChange={(e) => setForm({ ...form, cpf: formatCPF(e.target.value) })}
+                      onChange={(e) => {
+                        const formatted = formatCPF(e.target.value)
+                        setForm({ ...form, cpf: formatted })
+                        setCpfValid(null)
+                        setCpfError("")
+                      }}
+                      onBlur={async () => {
+                        const cleanCpf = form.cpf.replace(/\D/g, '')
+                        if (cleanCpf.length === 11) {
+                          setCpfValidating(true)
+                          const formatValid = isValidCPF(form.cpf)
+                          if (!formatValid) {
+                            setCpfError("CPF inválido (formato)")
+                            setCpfValid(false)
+                          } else {
+                            setCpfValid(true)
+                          }
+                          setCpfValidating(false)
+                        }
+                      }}
                       placeholder="000.000.000-00"
                       maxLength={14}
                       required
+                      className={cpfValid === false ? "border-destructive" : ""}
                     />
+                    {cpfError && (
+                      <p className="text-xs text-destructive mt-1">{cpfError}</p>
+                    )}
+                    {cpfValidating && (
+                      <p className="text-xs text-muted-foreground mt-1">Validando CPF...</p>
+                    )}
+                    {cpfValid === true && (
+                      <p className="text-xs text-success mt-1">CPF válido ✓</p>
+                    )}
                   </Field>
                 </FieldGroup>
 
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="dataNascimento">Data de Nascimento *</FieldLabel>
+                    <FieldLabel htmlFor="dataNascimento" className="text-foreground font-medium">Data de Nascimento *</FieldLabel>
                     <Input
                       id="dataNascimento"
                       type="date"
@@ -241,7 +359,7 @@ export default function AlunosPage() {
 
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="email">E-mail</FieldLabel>
+                    <FieldLabel htmlFor="email" className="text-foreground font-medium">E-mail</FieldLabel>
                     <Input
                       id="email"
                       type="email"
@@ -252,9 +370,9 @@ export default function AlunosPage() {
                   </Field>
                 </FieldGroup>
 
-                <FieldGroup>
+                <FieldGroup className="md:col-span-2">
                   <Field>
-                    <FieldLabel htmlFor="telefone">Telefone *</FieldLabel>
+                    <FieldLabel htmlFor="telefone" className="text-foreground font-medium">Telefone *</FieldLabel>
                     <Input
                       id="telefone"
                       value={form.telefone}
@@ -266,31 +384,54 @@ export default function AlunosPage() {
                   </Field>
                 </FieldGroup>
 
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="curso">Curso *</FieldLabel>
-                    <Select
-                      value={form.curso}
-                      onValueChange={(value) => setForm({ ...form, curso: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o curso" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cursos.map((curso) => (
-                          <SelectItem key={curso} value={curso}>
-                            {curso}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </FieldGroup>
+                {/* Multi-Course & Multi-Class Selection */}
+                <div className="md:col-span-2 space-y-2">
+                  <Label className="text-sm font-semibold text-foreground">Matricular em Turmas *</Label>
+                  <div className="border border-border rounded-lg p-4 max-h-60 overflow-y-auto space-y-4 bg-muted/10">
+                    {cursosList.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center">Nenhum curso cadastrado no sistema</p>
+                    ) : (
+                      cursosList.map((curso) => {
+                        const classesForCourse = classes.filter(c => (c.courseId === curso.id || c.curso === curso.name) && c.status === "ativa")
+                        if (classesForCourse.length === 0) return null
+                        
+                        return (
+                          <div key={curso.id} className="space-y-2 border-b border-border/30 pb-3 last:border-0 last:pb-0">
+                            <h4 className="font-bold text-xs uppercase tracking-wider text-primary">{curso.name}</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                              {classesForCourse.map((c) => {
+                                const isChecked = form.classIds.includes(c.id)
+                                return (
+                                  <label key={c.id} className="flex items-center gap-2.5 text-sm cursor-pointer p-1.5 rounded hover:bg-accent/40 select-none">
+                                    <Checkbox
+                                      checked={isChecked}
+                                      onCheckedChange={(checked) => {
+                                        setForm(prev => ({
+                                          ...prev,
+                                          classIds: checked
+                                            ? [...prev.classIds, c.id]
+                                            : prev.classIds.filter(id => id !== c.id)
+                                        }))
+                                      }}
+                                    />
+                                    <span className="text-foreground font-medium">
+                                      {c.nome} <span className="text-xs text-muted-foreground font-normal">({c.horario})</span>
+                                    </span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
 
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="endereco">Endereço *</FieldLabel>
+                  <FieldLabel htmlFor="endereco" className="text-foreground font-medium">Endereço *</FieldLabel>
                   <Input
                     id="endereco"
                     value={form.endereco}
@@ -301,7 +442,7 @@ export default function AlunosPage() {
                 </Field>
               </FieldGroup>
 
-              <div className="flex gap-3 justify-end pt-4">
+              <div className="flex gap-3 justify-end pt-4 border-t border-border/50">
                 <Button
                   type="button"
                   variant="outline"
@@ -309,10 +450,11 @@ export default function AlunosPage() {
                     setDialogOpen(false)
                     resetForm()
                   }}
+                  className="border-border hover:bg-muted"
                 >
                   Cancelar
                 </Button>
-                <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6 shadow-md">
                   {editingAluno ? "Salvar Alterações" : "Cadastrar Aluno"}
                 </Button>
               </div>
@@ -331,14 +473,14 @@ export default function AlunosPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border-border/50">
+        <Card className="border-border/50 bg-card/30">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-full bg-primary/10">
               <Users className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Total de Alunos</p>
-              <p className="text-xl font-bold text-foreground">{alunos.length}</p>
+              <p className="text-sm text-muted-foreground font-medium">Total de Alunos</p>
+              <p className="text-xl font-bold text-foreground mt-0.5">{alunos.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -346,22 +488,35 @@ export default function AlunosPage() {
 
       {/* Search and Table */}
       <Card className="border-border/50">
-        <CardHeader>
-          <CardTitle>Lista de Alunos</CardTitle>
-          <CardDescription>
+        <CardHeader className="pb-3 border-b border-border/50">
+          <CardTitle className="text-lg">Lista de Alunos</CardTitle>
+          <CardDescription className="text-xs">
             {alunosFiltrados.length} aluno(s) encontrado(s)
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          {/* Search */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome ou curso..."
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              className="pl-10"
-            />
+        <CardContent className="pt-4">
+          {/* Search and Filter */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome..."
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={filtroCurso} onValueChange={setFiltroCurso}>
+              <SelectTrigger className="w-full sm:w-56">
+                <SelectValue placeholder="Filtrar por Curso" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os cursos</SelectItem>
+                {cursosList.map(curso => (
+                  <SelectItem key={curso.id} value={curso.name}>{curso.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Table */}
@@ -369,53 +524,79 @@ export default function AlunosPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead>Nome</TableHead>
-                  <TableHead className="hidden md:table-cell">CPF</TableHead>
-                  <TableHead className="hidden sm:table-cell">Telefone</TableHead>
-                  <TableHead>Curso</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className="font-semibold text-foreground text-sm">Nome</TableHead>
+                  <TableHead className="hidden md:table-cell font-semibold text-foreground text-sm">CPF</TableHead>
+                  <TableHead className="hidden sm:table-cell font-semibold text-foreground text-sm">Telefone</TableHead>
+                  <TableHead className="font-semibold text-foreground text-sm">Curso(s)</TableHead>
+                  <TableHead className="font-semibold text-foreground text-sm">Turma(s)</TableHead>
+                  <TableHead className="text-right font-semibold text-foreground text-sm">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {alunosFiltrados.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       Nenhum aluno encontrado
                     </TableCell>
                   </TableRow>
                 ) : (
-                  alunosFiltrados.map((aluno) => (
-                    <TableRow key={aluno.id}>
-                      <TableCell className="font-medium">{aluno.nome}</TableCell>
-                      <TableCell className="hidden md:table-cell">{aluno.cpf}</TableCell>
-                      <TableCell className="hidden sm:table-cell">{aluno.telefone}</TableCell>
-                      <TableCell>
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                          {aluno.curso}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(aluno)}
-                            className="h-8 w-8"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(aluno.id)}
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  alunosFiltrados.map((aluno) => {
+                    const studentClasses = classes.filter(c => aluno.classIds?.includes(c.id))
+                    
+                    return (
+                      <TableRow key={aluno.id} className="hover:bg-accent/20">
+                        <TableCell className="font-medium text-foreground">{aluno.nome}</TableCell>
+                        <TableCell className="hidden md:table-cell text-muted-foreground text-sm">{aluno.cpf}</TableCell>
+                        <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">{aluno.telefone}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {studentClasses.length === 0 ? (
+                              <span className="text-xs text-muted-foreground italic">Sem curso</span>
+                            ) : (
+                              Array.from(new Set(studentClasses.map(c => c.curso))).map(courseName => (
+                                <span key={courseName} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                                  {courseName}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {studentClasses.length === 0 ? (
+                              <span className="text-xs text-muted-foreground italic">Não matriculado</span>
+                            ) : (
+                              studentClasses.map(c => (
+                                <span key={c.id} className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                                  {c.nome}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(aluno)}
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(aluno.id)}
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>

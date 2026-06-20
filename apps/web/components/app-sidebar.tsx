@@ -20,6 +20,7 @@ import {
   Calendar,
   HelpCircle,
   UserCog,
+  Megaphone,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -44,12 +45,16 @@ type NavItem = {
 const menuItems: Array<{ group: string; items: NavItem[] }> = [
   {
     group: "Principal",
-    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/dashboard/comunicacao", label: "Comunicação", icon: Megaphone, permission: PERMISSIONS.COMUNICACAO },
+    ],
   },
   {
     group: "Gestão",
     items: [
       { href: "/dashboard/alunos", label: "Alunos", icon: Users, permission: PERMISSIONS.ALUNOS },
+      { href: "/dashboard/cursos", label: "Cursos", icon: BookOpen, roles: ["DIRECTOR"] },
       { href: "/dashboard/turmas", label: "Turmas", icon: GraduationCap, permission: PERMISSIONS.TURMAS },
       { href: "/dashboard/presenca", label: "Presença", icon: ClipboardCheck, permission: PERMISSIONS.PRESENCA },
       { href: "/dashboard/professores", label: "Professores", icon: UserCog, roles: ["DIRECTOR"] },

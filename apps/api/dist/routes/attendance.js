@@ -5,45 +5,74 @@ import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 const attendanceRecordSchema = z.object({
     studentId: z.string(),
-    status: z.enum(["presente", "ausente"]),
+    status: z.enum(["presente", "ausente", "PRESENT", "ABSENT"]),
 });
 const bulkAttendanceSchema = z.object({
     date: z.string(),
+    classId: z.string().optional(),
     records: z.array(attendanceRecordSchema),
 });
-// GET /attendance - Get attendance records (optional filter by date)
+// GET /attendance - Get attendance records with lookup
 router.get("/", requireAuth, async (req, res) => {
-    const { date } = req.query;
+    const { date, classId, startDate, endDate } = req.query;
     const filter = {};
     if (date) {
         filter.date = date;
     }
+    if (classId) {
+        filter.classId = classId;
+    }
+    if (startDate || endDate) {
+        filter.date = {};
+        if (startDate) {
+            filter.date.$gte = startDate;
+        }
+        if (endDate) {
+            filter.date.$lte = endDate;
+        }
+    }
+    // Aggregate to lookup student details
     const attendanceList = await db.collection("attendances")
-        .find(filter)
+        .aggregate([
+        { $match: filter },
+        {
+            $lookup: {
+                from: "students",
+                let: { studentIdObj: { $toObjectId: "$studentId" } },
+                pipeline: [
+                    { $match: { $expr: { $eq: ["$_id", "$$studentIdObj"] } } }
+                ],
+                as: "studentInfo"
+            }
+        }
+    ])
         .toArray();
     const records = attendanceList.map((a) => ({
         id: a._id.toString(),
         alunoId: a.studentId,
+        studentId: a.studentId,
         data: a.date,
-        status: a.status,
+        date: a.date,
+        status: (a.status === "presente" || a.status === "PRESENT") ? "PRESENT" : "ABSENT",
+        classId: a.classId,
+        student: a.studentInfo?.[0] ? { name: a.studentInfo[0].nome } : null
     }));
     return res.json({ records });
 });
 // POST /attendance - Bulk upsert daily attendance
 router.post("/", requireAuth, async (req, res) => {
-    const { date, records } = bulkAttendanceSchema.parse(req.body);
-    // Remove existing records for the specified date and students
+    const { date, classId, records } = bulkAttendanceSchema.parse(req.body);
     const studentIds = records.map(r => r.studentId);
     await db.collection("attendances").deleteMany({
         date,
         studentId: { $in: studentIds }
     });
-    // Bulk insert new records if any
     if (records.length > 0) {
         const documents = records.map(r => ({
             studentId: r.studentId,
+            classId,
             date,
-            status: r.status,
+            status: (r.status === "PRESENT" || r.status === "presente") ? "presente" : "ausente",
             createdAt: new Date()
         }));
         await db.collection("attendances").insertMany(documents);

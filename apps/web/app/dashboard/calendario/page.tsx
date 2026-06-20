@@ -42,9 +42,8 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import type { Evento } from "@/lib/types"
-import { store } from "@/lib/store"
-import { Spinner } from "@/components/ui/spinner"
+import { getEvents, createEvent, updateEvent, deleteEvent, getLessonPlans } from "@/lib/api"
+import type { Evento, PlanoAula } from "@/lib/types"
 
 const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -58,8 +57,8 @@ const tipoEventoConfig = {
 
 export default function CalendarioPage() {
   const [eventos, setEventos] = useState<Evento[]>([])
-  const [loading, setLoading] = useState(true)
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 2, 1)) // Março 2026
+  const [lessonPlans, setLessonPlans] = useState<PlanoAula[]>([])
+  const [currentDate, setCurrentDate] = useState(new Date()) // Hoje
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEvento, setEditingEvento] = useState<Evento | null>(null)
@@ -72,10 +71,17 @@ export default function CalendarioPage() {
   })
 
   useEffect(() => {
-    store.getEvents()
-      .then((data) => setEventos(data))
-      .catch((err) => console.error("Erro ao buscar eventos:", err))
-      .finally(() => setLoading(false))
+    const loadData = async () => {
+      try {
+        const [events, plans] = await Promise.all([getEvents(), getLessonPlans()])
+        setEventos(events)
+        setLessonPlans(plans)
+      } catch (error) {
+        console.error("Erro ao carregar dados do calendário:", error)
+      }
+    }
+
+    loadData()
   }, [])
 
   const getDaysInMonth = (date: Date) => {
@@ -105,9 +111,31 @@ export default function CalendarioPage() {
     return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
   }
 
+  const getMergedEventsForDate = (dateStr: string) => {
+    const dayEvents = eventos.filter(e => e.data === dateStr)
+    const dayPlans = lessonPlans.filter(p => {
+      if (!p.data) return false
+      if (p.endDate) {
+        const start = new Date(p.data + 'T00:00:00')
+        const end = new Date(p.endDate + 'T23:59:59')
+        const current = new Date(dateStr + 'T12:00:00')
+        return current >= start && current <= end
+      }
+      return p.data === dateStr
+    }).map(p => ({
+      id: `plan-${p.id}`,
+      titulo: `Aula: ${p.disciplina} (${p.turma.split(' ')[0]})`,
+      descricao: p.conteudo,
+      data: dateStr,
+      horario: "",
+      tipo: 'aula' as const
+    }))
+    return [...dayEvents, ...dayPlans]
+  }
+
   const getEventosForDate = (day: number) => {
     const dateStr = formatDateString(currentDate.getFullYear(), currentDate.getMonth(), day)
-    return eventos.filter(e => e.data === dateStr)
+    return getMergedEventsForDate(dateStr)
   }
 
   const prevMonth = () => {
@@ -125,22 +153,20 @@ export default function CalendarioPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    
+
     try {
       if (editingEvento) {
-        await store.updateEvent(editingEvento.id, formData)
+        await updateEvent(editingEvento.id, formData)
       } else {
-        await store.addEvent(formData)
+        await createEvent(formData)
       }
-      const data = await store.getEvents()
-      setEventos(data)
+
+      const events = await getEvents()
+      setEventos(events)
       resetForm()
       setModalOpen(false)
-    } catch (err) {
-      console.error("Erro ao salvar evento:", err)
-    } finally {
-      setLoading(false)
+    } catch (error) {
+      console.error("Erro ao salvar evento:", error)
     }
   }
 
@@ -168,17 +194,12 @@ export default function CalendarioPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Tem certeza que deseja excluir este evento?")) {
-      setLoading(true)
-      try {
-        await store.deleteEvent(id)
-        const data = await store.getEvents()
-        setEventos(data)
-      } catch (err) {
-        console.error("Erro ao excluir evento:", err)
-      } finally {
-        setLoading(false)
-      }
+    try {
+      await deleteEvent(id)
+      const events = await getEvents()
+      setEventos(events)
+    } catch (error) {
+      console.error("Erro ao excluir evento:", error)
     }
   }
 
@@ -188,13 +209,22 @@ export default function CalendarioPage() {
     setModalOpen(true)
   }
 
-  const eventosDoMes = eventos.filter(e => {
-    const eventDate = new Date(e.data)
-    return eventDate.getMonth() === currentDate.getMonth() && eventDate.getFullYear() === currentDate.getFullYear()
-  })
+  const todayStr = new Date().toISOString().split('T')[0]
+  const eventosHoje = getMergedEventsForDate(todayStr)
+  const eventosSelecionados = selectedDate ? getMergedEventsForDate(selectedDate) : []
 
-  const eventosHoje = eventos.filter(e => e.data === new Date().toISOString().split('T')[0])
-  const eventosSelecionados = selectedDate ? eventos.filter(e => e.data === selectedDate) : []
+  const allUpcoming = [
+    ...eventos.map(e => ({ ...e, isPlan: false })),
+    ...lessonPlans.map(p => ({
+      id: `plan-${p.id}`,
+      titulo: `Aula: ${p.disciplina} (${p.turma.split(' ')[0]})`,
+      descricao: p.conteudo,
+      data: p.data,
+      horario: "",
+      tipo: 'aula' as const,
+      isPlan: true
+    }))
+  ]
 
   const days = getDaysInMonth(currentDate)
   const today = new Date()
@@ -202,16 +232,6 @@ export default function CalendarioPage() {
     return day === today.getDate() && 
            currentDate.getMonth() === today.getMonth() && 
            currentDate.getFullYear() === today.getFullYear()
-  }
-
-  if (loading && eventos.length === 0) {
-    return (
-      <RequirePermission permission={PERMISSIONS.CALENDARIO}>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <Spinner className="h-6 w-6" />
-        </div>
-      </RequirePermission>
-    )
   }
 
   return (
@@ -444,26 +464,28 @@ export default function CalendarioPage() {
                               </p>
                             )}
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-6 w-6">
-                                <MoreVertical className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleEdit(evento)}>
-                                <Edit2 className="h-3 w-3 mr-2" />
-                                Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => handleDelete(evento.id)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="h-3 w-3 mr-2" />
-                                Excluir
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          {!evento.id.toString().startsWith('plan-') && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-6 w-6">
+                                  <MoreVertical className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEdit(evento)}>
+                                  <Edit2 className="h-3 w-3 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => handleDelete(evento.id)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="h-3 w-3 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                         {evento.descricao && (
                           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
@@ -485,8 +507,8 @@ export default function CalendarioPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {eventos
-                  .filter(e => new Date(e.data) >= new Date())
+                {allUpcoming
+                  .filter(e => new Date(e.data) >= new Date(new Date().setHours(0,0,0,0)))
                   .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
                   .slice(0, 5)
                   .map(evento => (
