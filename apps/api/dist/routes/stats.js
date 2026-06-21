@@ -1,18 +1,44 @@
 import { Router } from "express";
-import { db } from "../lib/db.js";
+import { db, Role } from "../lib/db.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 // GET /stats - Get main dashboard statistics and graph data
-router.get("/", requireAuth, async (_req, res) => {
-    const totalAlunos = await db.collection("students").countDocuments();
+router.get("/", requireAuth, async (req, res) => {
+    let totalAlunos = 0;
+    let presentesHoje = 0;
+    let aulasDoDia = 0;
     const todayStr = new Date().toISOString().split("T")[0];
-    const presentesHoje = await db.collection("attendances").countDocuments({
-        date: todayStr,
-        status: "presente"
-    });
-    const aulasDoDia = await db.collection("lessons").countDocuments({
-        data: todayStr
-    });
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        totalAlunos = await db.collection("students").countDocuments({
+            $or: [
+                { classId: { $in: classIds } },
+                { classIds: { $in: classIds } }
+            ]
+        });
+        presentesHoje = await db.collection("attendances").countDocuments({
+            date: todayStr,
+            status: "presente",
+            classId: { $in: classIds }
+        });
+        aulasDoDia = await db.collection("lessons").countDocuments({
+            data: todayStr,
+            classId: { $in: classIds }
+        });
+    }
+    else {
+        totalAlunos = await db.collection("students").countDocuments();
+        presentesHoje = await db.collection("attendances").countDocuments({
+            date: todayStr,
+            status: "presente"
+        });
+        aulasDoDia = await db.collection("lessons").countDocuments({
+            data: todayStr
+        });
+    }
     const weekdays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
     const weeklyPresenca = weekdays.map((dia, index) => {
         const presentesBase = Math.floor(totalAlunos * 0.8);
@@ -21,6 +47,82 @@ router.get("/", requireAuth, async (_req, res) => {
         const ausentes = totalAlunos > presentes ? totalAlunos - presentes : 0;
         return { dia, presentes, ausentes };
     });
+    // Calculate risk students
+    let studentsFilter = {};
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        studentsFilter = {
+            $or: [
+                { classId: { $in: classIds } },
+                { classIds: { $in: classIds } }
+            ]
+        };
+    }
+    const allStudentsList = await db.collection("students").find(studentsFilter).toArray();
+    const studentIdsStr = allStudentsList.map(s => s._id.toString());
+    const allAttendances = await db.collection("attendances")
+        .find({ studentId: { $in: studentIdsStr } })
+        .toArray();
+    const attendancesByStudent = {};
+    allAttendances.forEach((att) => {
+        if (!attendancesByStudent[att.studentId]) {
+            attendancesByStudent[att.studentId] = { total: 0, presents: 0 };
+        }
+        attendancesByStudent[att.studentId].total += 1;
+        if (att.status === "presente" || att.status === "PRESENT") {
+            attendancesByStudent[att.studentId].presents += 1;
+        }
+    });
+    const allGrades = await db.collection("grades")
+        .find({ studentId: { $in: studentIdsStr } })
+        .toArray();
+    const gradesByStudent = {};
+    allGrades.forEach((g) => {
+        if (!gradesByStudent[g.studentId]) {
+            gradesByStudent[g.studentId] = { sumPct: 0, count: 0 };
+        }
+        gradesByStudent[g.studentId].sumPct += (g.nota / g.notaMaxima) * 10;
+        gradesByStudent[g.studentId].count += 1;
+    });
+    const riskStudents = [];
+    for (const student of allStudentsList) {
+        const idStr = student._id.toString();
+        const attStats = attendancesByStudent[idStr];
+        let attendanceRate = null;
+        if (attStats && attStats.total > 0) {
+            attendanceRate = Math.round((attStats.presents / attStats.total) * 100);
+        }
+        const grStats = gradesByStudent[idStr];
+        let gradeAverage = null;
+        if (grStats && grStats.count > 0) {
+            gradeAverage = Math.round((grStats.sumPct / grStats.count) * 10) / 10;
+        }
+        const hasLowAttendance = attendanceRate !== null && attendanceRate < 75;
+        const hasLowGrades = gradeAverage !== null && gradeAverage < 7.0;
+        if (hasLowAttendance || hasLowGrades) {
+            let motivo = "";
+            if (hasLowAttendance && hasLowGrades) {
+                motivo = "Frequência e Notas Baixas";
+            }
+            else if (hasLowAttendance) {
+                motivo = "Frequência Baixa";
+            }
+            else {
+                motivo = "Média de Notas Baixa";
+            }
+            riskStudents.push({
+                id: idStr,
+                nome: student.nome,
+                curso: student.curso,
+                mediaNotas: gradeAverage,
+                frequencia: attendanceRate,
+                motivo
+            });
+        }
+    }
     return res.json({
         stats: {
             totalAlunos,
@@ -28,24 +130,47 @@ router.get("/", requireAuth, async (_req, res) => {
             aulasDoDia,
         },
         weeklyPresenca,
+        riskStudents,
     });
 });
 // GET /stats/students - Get student specific statistics
-router.get("/students", requireAuth, async (_req, res) => {
-    const totalCount = await db.collection("students").countDocuments();
+router.get("/students", requireAuth, async (req, res) => {
+    let filter = {};
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        filter = {
+            $or: [
+                { classId: { $in: classIds } },
+                { classIds: { $in: classIds } }
+            ]
+        };
+    }
+    const totalCount = await db.collection("students").countDocuments(filter);
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
     const newRegistrations7d = await db.collection("students").countDocuments({
+        ...filter,
         createdAt: { $gte: sevenDaysAgoStr }
     });
     const todayStr = new Date().toISOString().split("T")[0];
-    const presentToday = await db.collection("attendances").countDocuments({
+    let attendanceFilter = {
         date: todayStr,
         status: "presente"
-    });
+    };
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        attendanceFilter.classId = { $in: classIds };
+    }
+    const presentToday = await db.collection("attendances").countDocuments(attendanceFilter);
     const recentStudentsList = await db.collection("students")
-        .find()
+        .find(filter)
         .sort({ createdAt: -1 })
         .limit(10)
         .toArray();
@@ -54,11 +179,75 @@ router.get("/students", requireAuth, async (_req, res) => {
         name: s.nome,
         createdAt: s.createdAt,
     }));
+    // Calculate risk students
+    const allStudentsList = await db.collection("students").find(filter).toArray();
+    const studentIdsStr = allStudentsList.map(s => s._id.toString());
+    const allAttendances = await db.collection("attendances")
+        .find({ studentId: { $in: studentIdsStr } })
+        .toArray();
+    const attendancesByStudent = {};
+    allAttendances.forEach((att) => {
+        if (!attendancesByStudent[att.studentId]) {
+            attendancesByStudent[att.studentId] = { total: 0, presents: 0 };
+        }
+        attendancesByStudent[att.studentId].total += 1;
+        if (att.status === "presente" || att.status === "PRESENT") {
+            attendancesByStudent[att.studentId].presents += 1;
+        }
+    });
+    const allGrades = await db.collection("grades")
+        .find({ studentId: { $in: studentIdsStr } })
+        .toArray();
+    const gradesByStudent = {};
+    allGrades.forEach((g) => {
+        if (!gradesByStudent[g.studentId]) {
+            gradesByStudent[g.studentId] = { sumPct: 0, count: 0 };
+        }
+        gradesByStudent[g.studentId].sumPct += (g.nota / g.notaMaxima) * 10;
+        gradesByStudent[g.studentId].count += 1;
+    });
+    const riskStudents = [];
+    for (const student of allStudentsList) {
+        const idStr = student._id.toString();
+        const attStats = attendancesByStudent[idStr];
+        let attendanceRate = null;
+        if (attStats && attStats.total > 0) {
+            attendanceRate = Math.round((attStats.presents / attStats.total) * 100);
+        }
+        const grStats = gradesByStudent[idStr];
+        let gradeAverage = null;
+        if (grStats && grStats.count > 0) {
+            gradeAverage = Math.round((grStats.sumPct / grStats.count) * 10) / 10;
+        }
+        const hasLowAttendance = attendanceRate !== null && attendanceRate < 75;
+        const hasLowGrades = gradeAverage !== null && gradeAverage < 7.0;
+        if (hasLowAttendance || hasLowGrades) {
+            let motivo = "";
+            if (hasLowAttendance && hasLowGrades) {
+                motivo = "Frequência e Notas Baixas";
+            }
+            else if (hasLowAttendance) {
+                motivo = "Frequência Baixa";
+            }
+            else {
+                motivo = "Média de Notas Baixa";
+            }
+            riskStudents.push({
+                id: idStr,
+                nome: student.nome,
+                curso: student.curso,
+                mediaNotas: gradeAverage,
+                frequencia: attendanceRate,
+                motivo
+            });
+        }
+    }
     return res.json({
         totalCount,
         newRegistrations7d,
         presentToday,
-        recentStudents
+        recentStudents,
+        riskStudents
     });
 });
 // GET /stats/reports - Get detailed report metrics
@@ -126,7 +315,7 @@ router.get("/reports", requireAuth, async (_req, res) => {
         });
         return {
             mes: m.name,
-            matriculas: count || Math.floor(Math.random() * 3) + 1 // realistic fallback
+            matriculas: count
         };
     }));
     return res.json({

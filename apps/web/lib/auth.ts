@@ -3,7 +3,7 @@ const USER_KEY = "anjos_user"
 const COOKIE_KEY = "anjos_token"
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
-export type UserRole = "DIRECTOR" | "TEACHER"
+export type UserRole = "ADMIN" | "DIRECTOR" | "COORDINATOR" | "SECRETARY" | "TEACHER" | "STUDENT"
 
 export type AuthUser = {
   id: string

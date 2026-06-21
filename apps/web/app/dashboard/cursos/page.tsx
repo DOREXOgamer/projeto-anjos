@@ -38,7 +38,7 @@ export default function CursosPage() {
   })
 
   useEffect(() => {
-    if (!user || user.role !== "DIRECTOR") return
+    if (!user || (user.role !== "ADMIN" && user.role !== "DIRECTOR")) return
 
     const loadCourses = async () => {
       setLoading(true)
@@ -62,7 +62,7 @@ export default function CursosPage() {
     )
   }
 
-  if (!user || user.role !== "DIRECTOR") {
+  if (!user || (user.role !== "ADMIN" && user.role !== "DIRECTOR")) {
     return <AccessDenied />
   }
 

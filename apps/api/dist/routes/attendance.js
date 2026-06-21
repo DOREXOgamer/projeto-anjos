@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db } from "../lib/db.js";
+import { db, Role } from "../lib/db.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 const attendanceRecordSchema = z.object({
@@ -29,6 +29,20 @@ router.get("/", requireAuth, async (req, res) => {
         }
         if (endDate) {
             filter.date.$lte = endDate;
+        }
+    }
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        if (classId) {
+            if (!classIds.includes(classId)) {
+                return res.json({ records: [] });
+            }
+        }
+        else {
+            filter.classId = { $in: classIds };
         }
     }
     // Aggregate to lookup student details

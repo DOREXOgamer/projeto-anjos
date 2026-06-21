@@ -19,9 +19,9 @@ export function requireRole(...roles) {
         if (!req.user) {
             return res.status(401).json({ error: "Unauthorized" });
         }
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ error: "Forbidden" });
+        if (req.user.role === "ADMIN" || roles.includes(req.user.role)) {
+            return next();
         }
-        return next();
+        return res.status(403).json({ error: "Forbidden: Insufficient permissions" });
     };
 }

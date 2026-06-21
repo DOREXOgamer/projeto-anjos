@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db, Role, ObjectId } from "../lib/db.js";
+import { db, Role, ObjectId, ROLE_PERMISSIONS } from "../lib/db.js";
 import { signToken } from "../lib/jwt.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
@@ -9,7 +9,7 @@ const registerSchema = z.object({
     name: z.string().min(1),
     email: z.string().email(),
     password: z.string().min(6),
-    role: z.enum(["DIRECTOR", "TEACHER"]).optional(),
+    role: z.nativeEnum(Role).optional(),
 });
 const loginSchema = z.object({
     email: z.string().email(),
@@ -36,7 +36,8 @@ router.post("/register", async (req, res) => {
         email: data.email,
         passwordHash,
         role,
-        permissions: [],
+        permissions: ROLE_PERMISSIONS[role] || [],
+        active: true,
         createdAt: new Date(),
         updatedAt: new Date(),
     };
@@ -50,7 +51,8 @@ router.post("/register", async (req, res) => {
             name: newUser.name,
             email: newUser.email,
             role: newUser.role,
-            permissions: newUser.permissions,
+            permissions: ROLE_PERMISSIONS[newUser.role] || [],
+            active: true,
         },
     });
 });
@@ -59,6 +61,9 @@ router.post("/login", async (req, res) => {
     const userDoc = await db.collection("users").findOne({ email: data.email });
     if (!userDoc) {
         return res.status(401).json({ error: "Invalid credentials" });
+    }
+    if (userDoc.active === false) {
+        return res.status(403).json({ error: "Sua conta está desativada. Entre em contato com a administração." });
     }
     const valid = await bcrypt.compare(data.password, userDoc.passwordHash);
     if (!valid) {
@@ -73,7 +78,8 @@ router.post("/login", async (req, res) => {
             name: userDoc.name,
             email: userDoc.email,
             role: userDoc.role,
-            permissions: userDoc.permissions || [],
+            permissions: ROLE_PERMISSIONS[userDoc.role] || [],
+            active: userDoc.active !== false,
         },
     });
 });
@@ -83,12 +89,16 @@ router.get("/me", requireAuth, async (req, res) => {
         try {
             const userDoc = await db.collection("users").findOne({ _id: new ObjectId(req.user.sub) });
             if (userDoc) {
+                if (userDoc.active === false) {
+                    return res.status(403).json({ error: "Sua conta está desativada" });
+                }
                 user = {
                     id: userDoc._id.toString(),
                     name: userDoc.name,
                     email: userDoc.email,
                     role: userDoc.role,
-                    permissions: userDoc.permissions || [],
+                    permissions: ROLE_PERMISSIONS[userDoc.role] || [],
+                    active: true,
                     createdAt: userDoc.createdAt,
                 };
             }

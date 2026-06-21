@@ -1,7 +1,7 @@
 import { API_URL, getStoredToken } from './auth'
-import type { Aluno, Turma, Course, Evento, PlanoAula, Teacher, Announcement } from './types'
+import type { Aluno, Turma, Course, Evento, PlanoAula, Teacher, Announcement, Nota } from './types'
 
-export type { Announcement }
+export type { Announcement, Nota }
 
 export interface StudentStats {
   totalCount: number
@@ -11,6 +11,14 @@ export interface StudentStats {
     id: string
     name: string
     createdAt: string
+  }>
+  riskStudents?: Array<{
+    id: string
+    nome: string
+    curso: string
+    mediaNotas: number | null
+    frequencia: number | null
+    motivo: string
   }>
 }
 
@@ -272,4 +280,56 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   await request<void>(`/announcements/${id}`, {
     method: 'DELETE',
   })
+}
+
+// Grades (Notas)
+export async function getGrades(classId?: string, studentId?: string): Promise<Nota[]> {
+  let query = ''
+  const params: string[] = []
+  if (classId) params.push(`classId=${classId}`)
+  if (studentId) params.push(`studentId=${studentId}`)
+  if (params.length > 0) {
+    query = `?${params.join('&')}`
+  }
+  const data = await request<{ grades: Nota[] }>(`/grades${query}`)
+  return data.grades || []
+}
+
+export async function createGrade(grade: any): Promise<Nota> {
+  const data = await request<{ grade: Nota }>('/grades', {
+    method: 'POST',
+    body: JSON.stringify(grade),
+  })
+  return data.grade
+}
+
+export async function updateGrade(id: string, grade: any): Promise<void> {
+  await request<void>(`/grades/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(grade),
+  })
+}
+
+export async function deleteGrade(id: string): Promise<void> {
+  await request<void>(`/grades/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+// Audit Logs (Logs de Auditoria)
+export interface AuditLog {
+  id: string
+  userId: string
+  userName: string
+  userRole: string
+  action: string
+  resource: string
+  description: string
+  targetId?: string | null
+  createdAt: string
+}
+
+export async function getAuditLogs(): Promise<AuditLog[]> {
+  const data = await request<{ logs: AuditLog[] }>('/audit-logs')
+  return data.logs || []
 }

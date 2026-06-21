@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { RequirePermission } from "@/components/auth/require-permission"
+import { useAuth } from "@/components/auth/auth-provider"
 import { PERMISSIONS } from "@/lib/permissions"
 import { 
   GraduationCap, 
@@ -52,6 +53,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 const diasSemanaOptions = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
 export default function TurmasPage() {
+  const { user } = useAuth()
+  const canManage = user?.role === "ADMIN" || user?.role === "DIRECTOR" || user?.role === "COORDINATOR"
+
   const [turmas, setTurmas] = useState<Turma[]>([])
   const [allStudents, setAllStudents] = useState<Aluno[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -79,13 +83,16 @@ export default function TurmasPage() {
   })
 
   useEffect(() => {
+    if (!user) return
+
     const loadData = async () => {
       try {
+        const canManageVal = user.role === "ADMIN" || user.role === "DIRECTOR" || user.role === "COORDINATOR"
         const [classes, students, fetchedCourses, fetchedTeachers] = await Promise.all([
-          getClasses(),
-          getStudents(),
-          getCourses(),
-          getTeachers()
+          getClasses().catch(() => []),
+          getStudents().catch(() => []),
+          getCourses().catch(() => []),
+          canManageVal ? getTeachers().catch(() => []) : Promise.resolve([])
         ])
         setTurmas(classes)
         setAllStudents(students)
@@ -97,7 +104,7 @@ export default function TurmasPage() {
     }
 
     loadData()
-  }, [])
+  }, [user])
 
   const turmasFiltradas = turmas.filter(turma => {
     const matchBusca = turma.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -228,225 +235,226 @@ export default function TurmasPage() {
           <h1 className="text-2xl font-bold text-foreground">Turmas</h1>
           <p className="text-muted-foreground">Gerencie as turmas do projeto</p>
         </div>
-        
-        <Dialog open={modalOpen} onOpenChange={(open) => {
-          setModalOpen(open)
-          if (!open) resetForm()
-        }}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary hover:bg-primary/90">
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Turma
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingTurma ? 'Editar Turma' : 'Nova Turma'}
-              </DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nome">Nome da Turma</Label>
-                  <Input
-                    id="nome"
-                    value={formData.nome}
-                    onChange={(e) => setFormData({...formData, nome: e.target.value})}
-                    placeholder="Ex: Música - Manhã"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+             {canManage && (
+          <Dialog open={modalOpen} onOpenChange={(open) => {
+            setModalOpen(open)
+            if (!open) resetForm()
+          }}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary hover:bg-primary/90">
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Turma
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingTurma ? 'Editar Turma' : 'Nova Turma'}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="curso">Curso</Label>
+                    <Label htmlFor="nome">Nome da Turma</Label>
+                    <Input
+                      id="nome"
+                      value={formData.nome}
+                      onChange={(e) => setFormData({...formData, nome: e.target.value})}
+                      placeholder="Ex: Música - Manhã"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="curso">Curso</Label>
+                      <Select
+                        value={formData.courseId}
+                        onValueChange={(value) => {
+                          const course = courses.find(c => c.id === value)
+                          const courseName = course ? course.name : ''
+                          setFormData(prev => ({
+                            ...prev,
+                            courseId: value,
+                            curso: courseName,
+                            studentIds: prev.studentIds.filter(id => {
+                              const student = allStudents.find(s => s.id === id)
+                              return student?.curso.split(',').map(c => c.trim()).includes(courseName)
+                            })
+                          }))
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {courses.map(course => (
+                            <SelectItem key={course.id} value={course.id}>{course.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Horário (Início / Fim)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="time"
+                          value={formData.horarioInicio}
+                          onChange={(e) => setFormData({ ...formData, horarioInicio: e.target.value })}
+                          required
+                          className="w-full"
+                        />
+                        <span className="text-muted-foreground">-</span>
+                        <Input
+                          type="time"
+                          value={formData.horarioTermino}
+                          onChange={(e) => setFormData({ ...formData, horarioTermino: e.target.value })}
+                          required
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Dias da Semana</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {diasSemanaOptions.map(dia => (
+                        <Button
+                          key={dia}
+                          type="button"
+                          variant={formData.diasSemana.includes(dia) ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => toggleDiaSemana(dia)}
+                          className={formData.diasSemana.includes(dia) ? "bg-primary" : ""}
+                        >
+                          {dia.slice(0, 3)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="professor">Professor</Label>
                     <Select
-                      value={formData.courseId}
+                      value={formData.professorId}
                       onValueChange={(value) => {
-                        const course = courses.find(c => c.id === value)
-                        const courseName = course ? course.name : ''
+                        const teacher = teachers.find(t => t.id === value)
                         setFormData(prev => ({
                           ...prev,
-                          courseId: value,
-                          curso: courseName,
-                          studentIds: prev.studentIds.filter(id => {
-                            const student = allStudents.find(s => s.id === id)
-                            return student?.curso.split(',').map(c => c.trim()).includes(courseName)
-                          })
+                          professorId: value,
+                          professor: teacher ? teacher.name : ''
                         }))
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
+                        <SelectValue placeholder="Selecione o professor" />
                       </SelectTrigger>
                       <SelectContent>
-                        {courses.map(course => (
-                          <SelectItem key={course.id} value={course.id}>{course.name}</SelectItem>
+                        {teachers.map(teacher => (
+                          <SelectItem key={teacher.id} value={teacher.id}>
+                            {teacher.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="capacidade">Capacidade</Label>
+                      <Input
+                        id="capacidade"
+                        type="number"
+                        value={formData.capacidade}
+                        onChange={(e) => setFormData({...formData, capacidade: e.target.value})}
+                        placeholder="20"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="sala">Sala</Label>
+                      <Input
+                        id="sala"
+                        value={formData.sala}
+                        onChange={(e) => setFormData({...formData, sala: e.target.value})}
+                        placeholder="Sala 01"
+                        required
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label>Horário (Início / Fim)</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="time"
-                        value={formData.horarioInicio}
-                        onChange={(e) => setFormData({ ...formData, horarioInicio: e.target.value })}
-                        required
-                        className="w-full"
-                      />
-                      <span className="text-muted-foreground">-</span>
-                      <Input
-                        type="time"
-                        value={formData.horarioTermino}
-                        onChange={(e) => setFormData({ ...formData, horarioTermino: e.target.value })}
-                        required
-                        className="w-full"
-                      />
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={formData.status}
+                      onValueChange={(value: 'ativa' | 'inativa') => setFormData({...formData, status: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ativa">Ativa</SelectItem>
+                        <SelectItem value="inativa">Inativa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Alunos da Turma</Label>
+                    <div className="border border-border rounded-md p-3 max-h-48 overflow-y-auto space-y-2 bg-background">
+                      {!formData.curso ? (
+                        <p className="text-xs text-muted-foreground py-2 text-center">Selecione um curso para ver os alunos disponíveis</p>
+                      ) : (() => {
+                        const filteredStudents = allStudents.filter(aluno => aluno.curso.split(',').map(c => c.trim()).includes(formData.curso))
+                        return filteredStudents.length === 0 ? (
+                          <p className="text-xs text-muted-foreground py-2 text-center">Nenhum aluno cadastrado neste curso</p>
+                        ) : (
+                          filteredStudents.map(aluno => {
+                            const isChecked = formData.studentIds.includes(aluno.id)
+                            return (
+                              <div key={aluno.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`student-${aluno.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      studentIds: checked
+                                        ? [...prev.studentIds, aluno.id]
+                                        : prev.studentIds.filter(id => id !== aluno.id)
+                                    }))
+                                  }}
+                                />
+                                <label
+                                  htmlFor={`student-${aluno.id}`}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                >
+                                  {aluno.nome}
+                                </label>
+                              </div>
+                            )
+                          })
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Dias da Semana</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {diasSemanaOptions.map(dia => (
-                      <Button
-                        key={dia}
-                        type="button"
-                        variant={formData.diasSemana.includes(dia) ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => toggleDiaSemana(dia)}
-                        className={formData.diasSemana.includes(dia) ? "bg-primary" : ""}
-                      >
-                        {dia.slice(0, 3)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="professor">Professor</Label>
-                  <Select
-                    value={formData.professorId}
-                    onValueChange={(value) => {
-                      const teacher = teachers.find(t => t.id === value)
-                      setFormData(prev => ({
-                        ...prev,
-                        professorId: value,
-                        professor: teacher ? teacher.name : ''
-                      }))
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o professor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teachers.map(teacher => (
-                        <SelectItem key={teacher.id} value={teacher.id}>
-                          {teacher.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="capacidade">Capacidade</Label>
-                    <Input
-                      id="capacidade"
-                      type="number"
-                      value={formData.capacidade}
-                      onChange={(e) => setFormData({...formData, capacidade: e.target.value})}
-                      placeholder="20"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sala">Sala</Label>
-                    <Input
-                      id="sala"
-                      value={formData.sala}
-                      onChange={(e) => setFormData({...formData, sala: e.target.value})}
-                      placeholder="Sala 01"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={formData.status}
-                    onValueChange={(value: 'ativa' | 'inativa') => setFormData({...formData, status: value})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ativa">Ativa</SelectItem>
-                      <SelectItem value="inativa">Inativa</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Alunos da Turma</Label>
-                  <div className="border border-border rounded-md p-3 max-h-48 overflow-y-auto space-y-2 bg-background">
-                    {!formData.curso ? (
-                      <p className="text-xs text-muted-foreground py-2 text-center">Selecione um curso para ver os alunos disponíveis</p>
-                    ) : (() => {
-                      const filteredStudents = allStudents.filter(aluno => aluno.curso.split(',').map(c => c.trim()).includes(formData.curso))
-                      return filteredStudents.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2 text-center">Nenhum aluno cadastrado neste curso</p>
-                      ) : (
-                        filteredStudents.map(aluno => {
-                          const isChecked = formData.studentIds.includes(aluno.id)
-                          return (
-                            <div key={aluno.id} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`student-${aluno.id}`}
-                                checked={isChecked}
-                                onCheckedChange={(checked) => {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    studentIds: checked
-                                      ? [...prev.studentIds, aluno.id]
-                                      : prev.studentIds.filter(id => id !== aluno.id)
-                                  }))
-                                }}
-                              />
-                              <label
-                                htmlFor={`student-${aluno.id}`}
-                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                              >
-                                {aluno.nome}
-                              </label>
-                            </div>
-                          )
-                        })
-                      )
-                    })()}
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">Cancelar</Button>
-                </DialogClose>
-                <Button type="submit" className="bg-primary hover:bg-primary/90">
-                  {editingTurma ? 'Salvar' : 'Cadastrar'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button type="button" variant="outline">Cancelar</Button>
+                  </DialogClose>
+                  <Button type="submit" className="bg-primary hover:bg-primary/90">
+                    {editingTurma ? 'Salvar' : 'Cadastrar'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Feedback Alerts */}
@@ -567,26 +575,28 @@ export default function TurmasPage() {
                       {turma.status === 'ativa' ? 'Ativa' : 'Inativa'}
                     </Badge>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEdit(turma)}>
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Editar
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleDelete(turma.id)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Excluir
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {canManage && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEdit(turma)}>
+                          <Edit2 className="h-4 w-4 mr-2" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => handleDelete(turma.id)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">

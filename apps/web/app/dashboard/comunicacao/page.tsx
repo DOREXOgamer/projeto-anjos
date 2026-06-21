@@ -35,7 +35,7 @@ export default function ComunicacaoPage() {
 
   const [form, setForm] = useState({ title: "", body: "" })
 
-  const isDirector = user?.role === "DIRECTOR"
+  const isDirector = user?.role === "ADMIN" || user?.role === "DIRECTOR"
 
   const loadAnnouncements = async () => {
     try {
@@ -273,7 +273,7 @@ export default function ComunicacaoPage() {
                           {announcement.author?.name || "Administrador"}
                         </p>
                         <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-primary/15 text-primary rounded border border-primary/20">
-                          {announcement.author?.role === "DIRECTOR" ? "Diretoria" : "Professor"}
+                          {announcement.author?.role === "ADMIN" || announcement.author?.role === "DIRECTOR" ? "Diretoria" : "Professor"}
                         </span>
                       </div>
                     </div>

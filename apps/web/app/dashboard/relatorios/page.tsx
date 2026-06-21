@@ -349,7 +349,7 @@ export default function RelatoriosPage() {
     return null
   }
 
-  if (user.role !== "DIRECTOR") {
+  if (user.role !== "ADMIN" && user.role !== "DIRECTOR") {
     return <AccessDenied />
   }
 

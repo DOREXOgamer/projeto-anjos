@@ -2,10 +2,18 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, UserCheck, BookOpen, TrendingUp } from "lucide-react"
+import { Users, UserCheck, BookOpen, TrendingUp, AlertTriangle } from "lucide-react"
 import { getStudentsStats, getReportsStats, type StudentStats } from "@/lib/api"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 const chartConfig = {
   presentes: {
@@ -26,6 +34,14 @@ interface DashboardData {
     tipo: string
     descricao: string
     tempo: string
+  }>
+  riskStudents: Array<{
+    id: string
+    nome: string
+    curso: string
+    mediaNotas: number | null
+    frequencia: number | null
+    motivo: string
   }>
 }
 
@@ -55,7 +71,8 @@ export default function DashboardPage() {
           totalAlunos: stats.totalCount,
           novosCadastros: stats.newRegistrations7d,
           presentesHoje: stats.presentToday || 0,
-          atividadesRecentes
+          atividadesRecentes,
+          riskStudents: stats.riskStudents || []
         })
         setReportsData(reports)
       })
@@ -223,6 +240,67 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Risk Students Alerts */}
+      {dashboardData && dashboardData.riskStudents && dashboardData.riskStudents.length > 0 && (
+        <Card className="border-destructive/30 bg-destructive/5 dark:bg-destructive/10">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2 text-destructive font-semibold">
+              <AlertTriangle className="h-5 w-5" />
+              <CardTitle className="text-lg">Alunos Necessitando de Atenção Acadêmica</CardTitle>
+            </div>
+            <CardDescription className="text-xs">
+              Alunos com frequência abaixo de 75% ou média de notas inferior a 7.0
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="rounded-md border border-destructive/20 overflow-x-auto bg-card/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-destructive/10 hover:bg-destructive/15">
+                    <TableHead className="font-semibold text-foreground">Aluno</TableHead>
+                    <TableHead className="font-semibold text-foreground">Curso</TableHead>
+                    <TableHead className="font-semibold text-foreground">Média Notas (0-10)</TableHead>
+                    <TableHead className="font-semibold text-foreground">Frequência (%)</TableHead>
+                    <TableHead className="font-semibold text-foreground">Motivo do Alerta</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dashboardData.riskStudents.map((student) => (
+                    <TableRow key={student.id} className="hover:bg-destructive/5 border-destructive/10">
+                      <TableCell className="font-medium text-foreground">{student.nome}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{student.curso}</TableCell>
+                      <TableCell>
+                        {student.mediaNotas !== null ? (
+                          <span className={`font-bold text-sm ${student.mediaNotas >= 7.0 ? "text-success" : "text-destructive"}`}>
+                            {student.mediaNotas}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Sem notas</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {student.frequencia !== null ? (
+                          <span className={`font-bold text-sm ${student.frequencia >= 75 ? "text-success" : "text-destructive"}`}>
+                            {student.frequencia}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Sem frequência</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex px-2.5 py-0.5 rounded bg-destructive/15 text-destructive font-bold text-xs border border-destructive/25">
+                          {student.motivo}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Access */}
       <Card className="border-border/50">

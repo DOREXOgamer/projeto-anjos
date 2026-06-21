@@ -1,16 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, ObjectId } from "../lib/db.js";
-import { requireAuth } from "../middleware/auth.js";
+import { db, ObjectId, Role } from "../lib/db.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import { createAuditLog } from "../lib/audit.js";
 const router = Router();
 const studentSchema = z.object({
     nome: z.string().min(1),
     cpf: z.string().min(1),
     dataNascimento: z.string().min(1),
     email: z.string().email().or(z.literal("")).optional(),
-    telefone: z.string().min(1),
-    endereco: z.string().min(1),
-    curso: z.string().min(1),
+    telefone: z.string().or(z.literal("")).optional(),
+    endereco: z.string().or(z.literal("")).optional(),
+    curso: z.string().or(z.literal("")).optional(),
     classId: z.string().nullable().optional(),
     classIds: z.array(z.string()).optional(),
 });
@@ -28,9 +29,22 @@ async function updateClassEnrollmentCounts() {
     }
 }
 // GET /students - List all students
-router.get("/", requireAuth, async (_req, res) => {
+router.get("/", requireAuth, async (req, res) => {
+    let filter = {};
+    if (req.user.role === Role.TEACHER) {
+        const teacherClasses = await db.collection("classes")
+            .find({ professorId: req.user.sub })
+            .toArray();
+        const classIds = teacherClasses.map(c => c._id.toString());
+        filter = {
+            $or: [
+                { classId: { $in: classIds } },
+                { classIds: { $in: classIds } }
+            ]
+        };
+    }
     const studentsList = await db.collection("students")
-        .find()
+        .find(filter)
         .sort({ createdAt: -1 })
         .toArray();
     const students = studentsList.map((s) => ({
@@ -49,7 +63,7 @@ router.get("/", requireAuth, async (_req, res) => {
     return res.json({ students });
 });
 // POST /students - Create student
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req, res) => {
     const data = studentSchema.parse(req.body);
     const newStudent = {
         ...data,
@@ -62,10 +76,11 @@ router.post("/", requireAuth, async (req, res) => {
         id: result.insertedId.toString(),
         ...newStudent,
     };
+    await createAuditLog(req.user.sub, "CREATE", "student", `Cadastrou o aluno ${newStudent.nome} (CPF: ${newStudent.cpf})`, student.id);
     return res.status(201).json({ student });
 });
 // PUT /students/:id - Update student
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req, res) => {
     const { id } = req.params;
     const data = studentSchema.partial().parse(req.body);
     const updateData = {
@@ -73,17 +88,22 @@ router.put("/:id", requireAuth, async (req, res) => {
         updatedAt: new Date(),
     };
     await db.collection("students").updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    const updatedStudent = await db.collection("students").findOne({ _id: new ObjectId(id) });
+    const name = updatedStudent ? updatedStudent.nome : "Desconhecido";
     await updateClassEnrollmentCounts();
+    await createAuditLog(req.user.sub, "UPDATE", "student", `Atualizou dados do aluno ${name}`, id);
     return res.json({ success: true });
 });
 // DELETE /students/:id - Delete student
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req, res) => {
     const { id } = req.params;
+    const existingStudent = await db.collection("students").findOne({ _id: new ObjectId(id) });
+    const name = existingStudent ? existingStudent.nome : "Desconhecido";
     await db.collection("students").deleteOne({ _id: new ObjectId(id) });
-    // Clean up any enrollments/attendance for this student
-    await db.collection("enrollments").deleteMany({ studentId: new ObjectId(id) });
-    await db.collection("attendances").deleteMany({ studentId: new ObjectId(id) });
+    // Clean up attendance for this student (studentId stored as string)
+    await db.collection("attendances").deleteMany({ studentId: id });
     await updateClassEnrollmentCounts();
+    await createAuditLog(req.user.sub, "DELETE", "student", `Excluiu o aluno ${name}`, id);
     return res.json({ success: true });
 });
 export const studentsRouter = router;

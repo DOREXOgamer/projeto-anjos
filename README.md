@@ -113,7 +113,13 @@ projeto-anjos/
    ```
 
 3. **Configure o banco de dados**
-   - Configure a variável de ambiente `DATABASE_URL` no arquivo `.env` na pasta `apps/api` com a string de conexão do seu banco MongoDB (ex: Atlas ou `mongodb://localhost:27017/projeto_anjos`).
+   - **Opção Local (Recomendado via Docker):** Suba um banco MongoDB local executando o seguinte comando na raiz do projeto:
+     ```bash
+     docker compose up -d
+     ```
+     Depois, configure a variável de ambiente `DATABASE_URL` no arquivo `apps/api/.env` para:
+     `DATABASE_URL="mongodb://localhost:27017/projeto_anjos"`
+   - **Opção Nuvem (Atlas):** Configure a variável `DATABASE_URL` com a string de conexão fornecida pelo MongoDB Atlas (lembre-se de liberar o IP de desenvolvimento no painel do Atlas).
 
 4. **Crie o usuário administrador**
    ```bash

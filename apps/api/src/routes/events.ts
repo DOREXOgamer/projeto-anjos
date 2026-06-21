@@ -1,7 +1,8 @@
 import { Router } from "express"
 import { z } from "zod"
-import { db, ObjectId } from "../lib/db.js"
-import { requireAuth } from "../middleware/auth.js"
+import { db, ObjectId, Role } from "../lib/db.js"
+import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js"
+import { createAuditLog } from "../lib/audit.js"
 
 const router = Router()
 
@@ -15,9 +16,22 @@ const eventSchema = z.object({
 })
 
 // GET /events - List all events
-router.get("/", requireAuth, async (_req, res) => {
+router.get("/", requireAuth, async (req: AuthRequest, res) => {
+  const filter: any = {}
+  if (req.user!.role === Role.TEACHER) {
+    const teacherClasses = await db.collection("classes")
+      .find({ professorId: req.user!.sub })
+      .toArray()
+    const classIds = teacherClasses.map(c => c._id.toString())
+    filter.$or = [
+      { turmaId: { $in: classIds } },
+      { turmaId: { $in: ["", null] } },
+      { turmaId: { $exists: false } }
+    ]
+  }
+
   const eventsList = await db.collection("events")
-    .find()
+    .find(filter)
     .sort({ data: 1, horario: 1 })
     .toArray()
 
@@ -35,7 +49,7 @@ router.get("/", requireAuth, async (_req, res) => {
 })
 
 // POST /events - Create event
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const data = eventSchema.parse(req.body)
 
   const newEvent = {
@@ -51,11 +65,19 @@ router.post("/", requireAuth, async (req, res) => {
     ...newEvent,
   }
 
+  await createAuditLog(
+    req.user!.sub,
+    "CREATE",
+    "event",
+    `Criou o evento ${newEvent.titulo} para a data ${newEvent.data}`,
+    event.id
+  )
+
   return res.status(201).json({ event })
 })
 
 // PUT /events/:id - Update event
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const { id } = req.params
   const data = eventSchema.partial().parse(req.body)
 
@@ -69,14 +91,35 @@ router.put("/:id", requireAuth, async (req, res) => {
     { $set: updateData }
   )
 
+  const updatedEvent = await db.collection("events").findOne({ _id: new ObjectId(id) })
+  const name = updatedEvent ? updatedEvent.titulo : "Desconhecido"
+
+  await createAuditLog(
+    req.user!.sub,
+    "UPDATE",
+    "event",
+    `Atualizou o evento ${name}`,
+    id
+  )
+
   return res.json({ success: true })
 })
 
 // DELETE /events/:id - Delete event
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const { id } = req.params
+  const existingEvent = await db.collection("events").findOne({ _id: new ObjectId(id) })
+  const name = existingEvent ? existingEvent.titulo : "Desconhecido"
 
   await db.collection("events").deleteOne({ _id: new ObjectId(id) })
+
+  await createAuditLog(
+    req.user!.sub,
+    "DELETE",
+    "event",
+    `Excluiu o evento ${name}`,
+    id
+  )
 
   return res.json({ success: true })
 })

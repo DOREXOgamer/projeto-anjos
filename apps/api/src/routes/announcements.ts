@@ -2,6 +2,7 @@ import { Router } from "express"
 import { z } from "zod"
 import { db, Role, ObjectId } from "../lib/db.js"
 import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js"
+import { createAuditLog } from "../lib/audit.js"
 
 const router = Router()
 
@@ -48,11 +49,11 @@ router.get("/", requireAuth, async (_req, res) => {
   return res.json({ announcements })
 })
 
-// POST /announcements - Create announcement (Director only)
+// POST /announcements - Create announcement (Director, Coordinator, Secretary)
 router.post(
   "/",
   requireAuth,
-  requireRole(Role.DIRECTOR),
+  requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY),
   async (req: AuthRequest, res) => {
     const data = createSchema.parse(req.body)
 
@@ -75,18 +76,38 @@ router.post(
       createdAt: newAnnouncement.createdAt,
     }
 
+    await createAuditLog(
+      req.user!.sub,
+      "CREATE",
+      "announcement",
+      `Criou o aviso mural: ${newAnnouncement.title}`,
+      announcement.id
+    )
+
     return res.status(201).json({ announcement })
   },
 )
 
-// DELETE /announcements/:id - Delete announcement (Director only)
+// DELETE /announcements/:id - Delete announcement (Director, Coordinator, Secretary)
 router.delete(
   "/:id",
   requireAuth,
-  requireRole(Role.DIRECTOR),
-  async (req, res) => {
+  requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY),
+  async (req: AuthRequest, res) => {
     const { id } = req.params
+    const existingAnn = await db.collection("announcements").findOne({ _id: new ObjectId(id) })
+    const title = existingAnn ? existingAnn.title : "Desconhecido"
+
     await db.collection("announcements").deleteOne({ _id: new ObjectId(id) })
+
+    await createAuditLog(
+      req.user!.sub,
+      "DELETE",
+      "announcement",
+      `Excluiu o aviso mural: ${title}`,
+      id
+    )
+
     return res.json({ success: true })
   },
 )

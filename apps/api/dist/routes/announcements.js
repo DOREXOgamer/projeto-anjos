@@ -2,11 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, Role, ObjectId } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { createAuditLog } from "../lib/audit.js";
 const router = Router();
 const createSchema = z.object({
     title: z.string().min(1),
     body: z.string().min(1),
 });
+// GET /announcements - List all announcements (all authenticated users)
 router.get("/", requireAuth, async (_req, res) => {
     const announcementsList = await db.collection("announcements")
         .aggregate([
@@ -41,7 +43,8 @@ router.get("/", requireAuth, async (_req, res) => {
     }));
     return res.json({ announcements });
 });
-router.post("/", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
+// POST /announcements - Create announcement (Director, Coordinator, Secretary)
+router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req, res) => {
     const data = createSchema.parse(req.body);
     const authorId = new ObjectId(req.user.sub);
     const newAnnouncement = {
@@ -59,6 +62,16 @@ router.post("/", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
         authorId: authorId.toString(),
         createdAt: newAnnouncement.createdAt,
     };
+    await createAuditLog(req.user.sub, "CREATE", "announcement", `Criou o aviso mural: ${newAnnouncement.title}`, announcement.id);
     return res.status(201).json({ announcement });
+});
+// DELETE /announcements/:id - Delete announcement (Director, Coordinator, Secretary)
+router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req, res) => {
+    const { id } = req.params;
+    const existingAnn = await db.collection("announcements").findOne({ _id: new ObjectId(id) });
+    const title = existingAnn ? existingAnn.title : "Desconhecido";
+    await db.collection("announcements").deleteOne({ _id: new ObjectId(id) });
+    await createAuditLog(req.user.sub, "DELETE", "announcement", `Excluiu o aviso mural: ${title}`, id);
+    return res.json({ success: true });
 });
 export const announcementsRouter = router;

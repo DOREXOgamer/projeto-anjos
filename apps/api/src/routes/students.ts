@@ -1,7 +1,8 @@
 import { Router } from "express"
 import { z } from "zod"
-import { db, ObjectId } from "../lib/db.js"
-import { requireAuth } from "../middleware/auth.js"
+import { db, ObjectId, Role } from "../lib/db.js"
+import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js"
+import { createAuditLog } from "../lib/audit.js"
 
 const router = Router()
 
@@ -35,9 +36,23 @@ async function updateClassEnrollmentCounts() {
 }
 
 // GET /students - List all students
-router.get("/", requireAuth, async (_req, res) => {
+router.get("/", requireAuth, async (req: AuthRequest, res) => {
+  let filter: any = {}
+  if (req.user!.role === Role.TEACHER) {
+    const teacherClasses = await db.collection("classes")
+      .find({ professorId: req.user!.sub })
+      .toArray()
+    const classIds = teacherClasses.map(c => c._id.toString())
+    filter = {
+      $or: [
+        { classId: { $in: classIds } },
+        { classIds: { $in: classIds } }
+      ]
+    }
+  }
+
   const studentsList = await db.collection("students")
-    .find()
+    .find(filter)
     .sort({ createdAt: -1 })
     .toArray()
 
@@ -59,7 +74,7 @@ router.get("/", requireAuth, async (_req, res) => {
 })
 
 // POST /students - Create student
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const data = studentSchema.parse(req.body)
 
   const newStudent = {
@@ -77,11 +92,19 @@ router.post("/", requireAuth, async (req, res) => {
     ...newStudent,
   }
 
+  await createAuditLog(
+    req.user!.sub,
+    "CREATE",
+    "student",
+    `Cadastrou o aluno ${newStudent.nome} (CPF: ${newStudent.cpf})`,
+    student.id
+  )
+
   return res.status(201).json({ student })
 })
 
 // PUT /students/:id - Update student
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const { id } = req.params
   const data = studentSchema.partial().parse(req.body)
 
@@ -95,14 +118,27 @@ router.put("/:id", requireAuth, async (req, res) => {
     { $set: updateData }
   )
 
+  const updatedStudent = await db.collection("students").findOne({ _id: new ObjectId(id) })
+  const name = updatedStudent ? updatedStudent.nome : "Desconhecido"
+
   await updateClassEnrollmentCounts()
+
+  await createAuditLog(
+    req.user!.sub,
+    "UPDATE",
+    "student",
+    `Atualizou dados do aluno ${name}`,
+    id
+  )
 
   return res.json({ success: true })
 })
 
 // DELETE /students/:id - Delete student
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const { id } = req.params
+  const existingStudent = await db.collection("students").findOne({ _id: new ObjectId(id) })
+  const name = existingStudent ? existingStudent.nome : "Desconhecido"
 
   await db.collection("students").deleteOne({ _id: new ObjectId(id) })
   
@@ -110,6 +146,14 @@ router.delete("/:id", requireAuth, async (req, res) => {
   await db.collection("attendances").deleteMany({ studentId: id })
 
   await updateClassEnrollmentCounts()
+
+  await createAuditLog(
+    req.user!.sub,
+    "DELETE",
+    "student",
+    `Excluiu o aluno ${name}`,
+    id
+  )
 
   return res.json({ success: true })
 })

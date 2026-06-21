@@ -14,14 +14,16 @@ export default function DashboardLayout({
   return (
     <RequireAuth>
       <div className="min-h-screen bg-background">
-        <AppSidebar />
+        <div className="print:hidden">
+          <AppSidebar />
+        </div>
         <main
           className={cn(
-            "min-h-screen transition-all duration-300",
+            "min-h-screen transition-all duration-300 print:ml-0",
             sidebarCollapsed ? "md:ml-[72px]" : "md:ml-64",
           )}
         >
-          <div className="p-4 md:p-6 lg:p-8">{children}</div>
+          <div className="p-4 md:p-6 lg:p-8 print:p-0">{children}</div>
         </main>
       </div>
     </RequireAuth>

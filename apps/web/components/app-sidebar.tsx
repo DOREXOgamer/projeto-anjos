@@ -21,6 +21,7 @@ import {
   HelpCircle,
   UserCog,
   Megaphone,
+  ClipboardList,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -54,10 +55,10 @@ const menuItems: Array<{ group: string; items: NavItem[] }> = [
     group: "Gestão",
     items: [
       { href: "/dashboard/alunos", label: "Alunos", icon: Users, permission: PERMISSIONS.ALUNOS },
-      { href: "/dashboard/cursos", label: "Cursos", icon: BookOpen, roles: ["DIRECTOR"] },
+      { href: "/dashboard/cursos", label: "Cursos", icon: BookOpen, roles: ["ADMIN", "DIRECTOR", "COORDINATOR"] },
       { href: "/dashboard/turmas", label: "Turmas", icon: GraduationCap, permission: PERMISSIONS.TURMAS },
       { href: "/dashboard/presenca", label: "Presença", icon: ClipboardCheck, permission: PERMISSIONS.PRESENCA },
-      { href: "/dashboard/professores", label: "Professores", icon: UserCog, roles: ["DIRECTOR"] },
+      { href: "/dashboard/equipe", label: "Equipe", icon: UserCog, roles: ["ADMIN", "DIRECTOR"] },
     ],
   },
   {
@@ -65,16 +66,17 @@ const menuItems: Array<{ group: string; items: NavItem[] }> = [
     items: [
       { href: "/dashboard/plano-aula", label: "Plano de Aula", icon: BookOpen, permission: PERMISSIONS.PLANO_AULA },
       { href: "/dashboard/calendario", label: "Calendário", icon: Calendar, permission: PERMISSIONS.CALENDARIO },
+      { href: "/dashboard/notas", label: "Notas", icon: ClipboardList, permission: PERMISSIONS.NOTAS },
     ],
   },
   {
     group: "Relatórios",
-    items: [{ href: "/dashboard/relatorios", label: "Relatórios", icon: BarChart3, roles: ["DIRECTOR"] }],
+    items: [{ href: "/dashboard/relatorios", label: "Relatórios", icon: BarChart3, roles: ["ADMIN", "DIRECTOR", "COORDINATOR"] }],
   },
 ]
 
 const bottomMenuItems: NavItem[] = [
-  { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings, roles: ["DIRECTOR"] },
+  { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings, roles: ["ADMIN", "DIRECTOR"] },
   { href: "/dashboard/ajuda", label: "Ajuda", icon: HelpCircle },
 ]
 

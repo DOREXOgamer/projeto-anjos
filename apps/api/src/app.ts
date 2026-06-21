@@ -13,6 +13,8 @@ import { lessonsRouter } from "./routes/lessons.js"
 import { eventsRouter } from "./routes/events.js"
 import { statsRouter } from "./routes/stats.js"
 import { coursesRouter } from "./routes/courses.js"
+import { gradesRouter } from "./routes/grades.js"
+import { auditRouter } from "./routes/audit.js"
 import { env } from "./lib/env.js"
 
 export const app = express()
@@ -44,6 +46,8 @@ app.use("/lessons", lessonsRouter)
 app.use("/events", eventsRouter)
 app.use("/stats", statsRouter)
 app.use("/courses", coursesRouter)
+app.use("/grades", gradesRouter)
+app.use("/audit-logs", auditRouter)
 
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

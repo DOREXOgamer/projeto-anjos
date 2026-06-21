@@ -71,7 +71,7 @@ export default function ConfiguracoesPage() {
       setPerfil({
         nome: user.name || "",
         email: user.email || "",
-        cargo: user.role === "DIRECTOR" ? "Diretor" : "Professor",
+        cargo: user.role === "ADMIN" ? "Administrador" : user.role === "DIRECTOR" ? "Diretor" : "Professor",
       })
     }
   }, [user])
@@ -100,7 +100,7 @@ export default function ConfiguracoesPage() {
     return null
   }
 
-  if (user.role !== "DIRECTOR") {
+  if (user.role !== "ADMIN" && user.role !== "DIRECTOR") {
     return <AccessDenied />
   }
 

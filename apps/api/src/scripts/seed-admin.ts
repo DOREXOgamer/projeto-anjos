@@ -11,39 +11,38 @@ const name = process.env.ADMIN_NAME ?? defaultName
 const force = process.env.ADMIN_FORCE === "true"
 
 async function run() {
-  // 1. Seed Director Admin Account
-  if (!force) {
-    const existingDirector = await db.collection("users").findOne({ role: "DIRECTOR" })
+  // 1. Seed Admin Account
+  const existingAdmin = await db.collection("users").findOne({ email })
 
-    if (existingDirector) {
-      console.log(`Admin já existe: ${existingDirector.email}`)
-    } else {
+  if (existingAdmin) {
+    if (force) {
+      await db.collection("users").deleteOne({ email })
       const passwordHash = await bcrypt.hash(password, 10)
       await db.collection("users").insertOne({
         name,
         email,
         passwordHash,
-        role: "DIRECTOR",
+        role: "ADMIN",
         permissions: [],
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      console.log(`Admin criado: ${email}`)
+      console.log(`Admin criado (force): ${email}`)
+    } else {
+      console.log(`Admin já existe: ${existingAdmin.email}`)
     }
   } else {
-    // If forced, delete current director and recreate
-    await db.collection("users").deleteMany({ role: "DIRECTOR" })
     const passwordHash = await bcrypt.hash(password, 10)
     await db.collection("users").insertOne({
       name,
       email,
       passwordHash,
-      role: "DIRECTOR",
+      role: "ADMIN",
       permissions: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    console.log(`Admin criado (force): ${email}`)
+    console.log(`Admin criado: ${email}`)
   }
 }
 

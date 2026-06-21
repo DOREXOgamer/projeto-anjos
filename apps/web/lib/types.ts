@@ -75,8 +75,13 @@ export interface Teacher {
   id: string
   name: string
   email: string
+  role?: string
   permissions: string[]
   active: boolean
+  cpf?: string
+  telefone?: string
+  dataNascimento?: string
+  endereco?: string
   createdAt: string
 }
 
@@ -89,5 +94,21 @@ export interface Announcement {
     name: string
     role: string
   } | null
+  createdAt: string
+}
+
+export interface Nota {
+  id: string
+  studentId: string
+  studentName?: string
+  classId: string
+  disciplina: string
+  tipo: 'prova' | 'trabalho' | 'participacao' | 'outro'
+  nota: number
+  notaMaxima: number
+  data: string
+  observacoes: string
+  professorId?: string
+  professor?: string
   createdAt: string
 }
