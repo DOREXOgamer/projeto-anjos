@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db, Role, ObjectId, ROLE_PERMISSIONS } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createAuditLog } from "../lib/audit.js";
+import { isValidCPF, formatCPF } from "../lib/validation.js";
 const router = Router();
 const permissionEnum = z.enum([
     "alunos",
@@ -14,24 +15,31 @@ const permissionEnum = z.enum([
     "comunicacao",
     "notas",
 ]);
+const optionalCpfSchema = z.string()
+    .or(z.literal(""))
+    .optional()
+    .refine((val) => !val || isValidCPF(val), {
+    message: "CPF inválido",
+})
+    .transform((val) => (val ? formatCPF(val) : ""));
 const createTeacherSchema = z.object({
-    name: z.string().min(1),
-    email: z.string().email(),
-    password: z.string().min(6),
+    name: z.string().min(1, "Nome é obrigatório"),
+    email: z.string().email("E-mail inválido"),
+    password: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
     role: z.nativeEnum(Role).optional().default(Role.TEACHER),
     permissions: z.array(permissionEnum).optional(),
-    cpf: z.string().or(z.literal("")).optional(),
+    cpf: optionalCpfSchema,
     telefone: z.string().or(z.literal("")).optional(),
     dataNascimento: z.string().or(z.literal("")).optional(),
     endereco: z.string().or(z.literal("")).optional(),
 });
 const updateTeacherSchema = z.object({
     name: z.string().min(1).optional(),
-    email: z.string().email().optional(),
+    email: z.string().email("E-mail inválido").optional(),
     role: z.nativeEnum(Role).optional(),
     permissions: z.array(permissionEnum).optional(),
     active: z.boolean().optional(),
-    cpf: z.string().or(z.literal("")).optional(),
+    cpf: optionalCpfSchema,
     telefone: z.string().or(z.literal("")).optional(),
     dataNascimento: z.string().or(z.literal("")).optional(),
     endereco: z.string().or(z.literal("")).optional(),

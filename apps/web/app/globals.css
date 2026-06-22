@@ -136,6 +136,62 @@
   }
 }
 
+/* Suporte para Modo Compacto */
+.compact-mode {
+  --radius: 0.5rem;
+}
+.compact-mode body {
+  font-size: 0.875rem;
+}
+.compact-mode .p-6 {
+  padding: 1rem !important;
+}
+.compact-mode .p-4 {
+  padding: 0.75rem !important;
+}
+.compact-mode .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 1rem !important;
+}
+.compact-mode .gap-6 {
+  gap: 1rem !important;
+}
+.compact-mode .h-20 {
+  height: 4rem !important;
+}
+.compact-mode .w-20 {
+  width: 4rem !important;
+}
+
+/* Efeitos Visuais Premium e Animações */
+.card, [class*="card"] {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  background-image: linear-gradient(to bottom right, var(--color-card), var(--color-card));
+  border: 1px solid var(--border) !important;
+}
+
+.card:hover, [class*="card"]:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 24px -8px rgba(0, 0, 0, 0.08), 0 4px 12px -4px rgba(0, 0, 0, 0.04);
+}
+
+.dark .card:hover, .dark [class*="card"]:hover {
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.3), 0 4px 16px -4px rgba(0, 0, 0, 0.15);
+  border-color: var(--primary) / 0.3 !important;
+}
+
+button, a, input, select {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Tabelas e Linhas de Tabelas Premium */
+tr {
+  transition: background-color 0.2s ease;
+}
+
+tbody tr:hover {
+  background-color: var(--muted) / 0.4 !important;
+}
+
 @media print {
   aside,
   button,
@@ -156,3 +212,34 @@
     color: black !important;
   }
 }
+
+/* Personalização da Barra de Rolagem (Scrollbar) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.5 0.02 50 / 0.25);
+  border-radius: 10px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.65 0.02 50 / 0.25);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Compatibilidade com Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.5 0.02 50 / 0.25) transparent;
+}
+
+

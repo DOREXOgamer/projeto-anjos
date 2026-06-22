@@ -16,21 +16,19 @@ const loginSchema = z.object({
     password: z.string().min(6),
 });
 router.post("/register", async (req, res) => {
+    const userCount = await db.collection("users").countDocuments();
+    if (userCount > 0) {
+        return res.status(403).json({
+            error: "O registro público está desativado. Novos colaboradores devem ser cadastrados por um administrador.",
+        });
+    }
     const data = registerSchema.parse(req.body);
     const existing = await db.collection("users").findOne({ email: data.email });
     if (existing) {
         return res.status(409).json({ error: "Email already in use" });
     }
-    if (data.role === "DIRECTOR") {
-        const userCount = await db.collection("users").countDocuments();
-        if (userCount > 0) {
-            return res.status(403).json({
-                error: "Director role can only be assigned to the first user",
-            });
-        }
-    }
     const passwordHash = await bcrypt.hash(data.password, 10);
-    const role = (data.role ?? Role.TEACHER);
+    const role = Role.DIRECTOR; // O primeiro usuário obrigatoriamente é cadastrado como DIRECTOR
     const newUser = {
         name: data.name,
         email: data.email,

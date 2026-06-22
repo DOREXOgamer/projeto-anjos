@@ -3,12 +3,15 @@ import { z } from "zod";
 import { db, ObjectId, Role } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createAuditLog } from "../lib/audit.js";
+import { isValidCPF, formatCPF } from "../lib/validation.js";
 const router = Router();
 const studentSchema = z.object({
-    nome: z.string().min(1),
-    cpf: z.string().min(1),
-    dataNascimento: z.string().min(1),
-    email: z.string().email().or(z.literal("")).optional(),
+    nome: z.string().min(1, "Nome é obrigatório"),
+    cpf: z.string().refine((val) => isValidCPF(val), {
+        message: "CPF inválido",
+    }).transform((val) => formatCPF(val)),
+    dataNascimento: z.string().min(1, "Data de nascimento é obrigatória"),
+    email: z.string().email("E-mail inválido").or(z.literal("")).optional(),
     telefone: z.string().or(z.literal("")).optional(),
     endereco: z.string().or(z.literal("")).optional(),
     curso: z.string().or(z.literal("")).optional(),
