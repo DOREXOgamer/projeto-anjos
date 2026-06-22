@@ -37,10 +37,12 @@ app.use(
 
 app.use(express.json())
 
+const isProd = process.env.NODE_ENV === "production"
+
 // Rate Limiter Global
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  limit: 200, // limite de 200 requisições por IP a cada 15 minutos
+  limit: isProd ? 200 : 10000, // 10000 requisições em desenvolvimento para evitar bloqueio local
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Muitas requisições. Por favor, tente novamente mais tarde." },
@@ -50,11 +52,12 @@ app.use(globalLimiter)
 // Rate Limiter específico para autenticação (Login/Registro)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  limit: 20, // limite de 20 requisições de autenticação por IP a cada 15 minutos
+  limit: isProd ? 20 : 1000, // 1000 tentativas em desenvolvimento
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Muitas tentativas de acesso. Por favor, tente novamente mais tarde." },
 })
+
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true })
