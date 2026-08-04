@@ -66,12 +66,6 @@ const guiasRapidos = [
     link: "#"
   },
   {
-    titulo: "Vídeos Tutoriais",
-    descricao: "Assista demonstrações em vídeo",
-    icon: PlayCircle,
-    link: "#"
-  },
-  {
     titulo: "Manual Completo",
     descricao: "Documentação detalhada",
     icon: FileText,
@@ -114,7 +108,7 @@ export default function AjudaPage() {
       </div>
 
       {/* Guias Rápidos */}
-      <div className="grid sm:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-2 max-w-2xl mx-auto w-full gap-4">
         {guiasRapidos.map((guia) => {
           const Icon = guia.icon
           return (
@@ -171,19 +165,25 @@ export default function AjudaPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <MessageCircle className="h-4 w-4" />
-              Suporte Online
+              Suporte Direto (WhatsApp)
             </CardTitle>
             <CardDescription>
-              Tire suas dúvidas em tempo real
+              Fale diretamente com o Guilherme via WhatsApp
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Nossa equipe de suporte está disponível de segunda a sexta, das 8h às 18h.
+              Precisa de ajuda imediata ou atendimento personalizado? Clique no botão abaixo para abrir a conversa no WhatsApp do Guilherme.
             </p>
-            <Button className="w-full bg-primary hover:bg-primary/90">
-              <MessageCircle className="h-4 w-4 mr-2" />
-              Iniciar Conversa
+            <Button asChild className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium">
+              <a
+                href="https://wa.me/5511999999999?text=Ol%C3%A1%20Guilherme,%20preciso%20de%20suporte%20no%20sistema%20Anjos%20Inocentes"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <MessageCircle className="h-4 w-4 mr-2" />
+                Falar com Guilherme no WhatsApp
+              </a>
             </Button>
           </CardContent>
         </Card>

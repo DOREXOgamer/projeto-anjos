@@ -1,0 +1,19 @@
+services:
+  # Backend Express API
+  - type: web
+    name: projeto-anjos-api
+    env: node
+    buildCommand: npm install && npm run build --prefix apps/api
+    startCommand: npm run start --prefix apps/api
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: JWT_SECRET
+        value: projeto-anjos-secret-key-2026
+
+  # Frontend Next.js Web
+  - type: web
+    name: projeto-anjos-inocentes
+    env: node
+    buildCommand: npm install && npm run build --prefix apps/web
+    startCommand: npm run start --prefix apps/web

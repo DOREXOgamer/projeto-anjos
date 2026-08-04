@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db, Role, ObjectId, ROLE_PERMISSIONS } from "../lib/db.js";
+import { supabase, Role, ROLE_PERMISSIONS } from "../lib/db.js";
 import { signToken } from "../lib/jwt.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
@@ -17,13 +17,13 @@ const loginSchema = z.object({
 });
 router.post("/register", async (req, res) => {
     const data = registerSchema.parse(req.body);
-    const existing = await db.collection("users").findOne({ email: data.email });
+    const { data: existing } = await supabase.from("users").select("id").eq("email", data.email).single();
     if (existing) {
         return res.status(409).json({ error: "Email already in use" });
     }
     if (data.role === "DIRECTOR") {
-        const userCount = await db.collection("users").countDocuments();
-        if (userCount > 0) {
+        const { count } = await supabase.from("users").select("*", { count: "exact", head: true });
+        if (count && count > 0) {
             return res.status(403).json({
                 error: "Director role can only be assigned to the first user",
             });
@@ -31,45 +31,48 @@ router.post("/register", async (req, res) => {
     }
     const passwordHash = await bcrypt.hash(data.password, 10);
     const role = (data.role ?? Role.TEACHER);
-    const newUser = {
+    const id = crypto.randomUUID();
+    const row = {
+        id,
         name: data.name,
         email: data.email,
-        passwordHash,
+        password: passwordHash,
         role,
         permissions: ROLE_PERMISSIONS[role] || [],
         active: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        created_at: new Date().toISOString()
     };
-    const result = await db.collection("users").insertOne(newUser);
-    const userIdStr = result.insertedId.toString();
-    const token = signToken({ sub: userIdStr, email: newUser.email, role: newUser.role });
+    const { error } = await supabase.from("users").insert(row);
+    if (error) {
+        return res.status(400).json({ error: error.message });
+    }
+    const token = signToken({ sub: id, email: data.email, role });
     return res.status(201).json({
         token,
         user: {
-            id: userIdStr,
-            name: newUser.name,
-            email: newUser.email,
-            role: newUser.role,
-            permissions: ROLE_PERMISSIONS[newUser.role] || [],
+            id,
+            name: data.name,
+            email: data.email,
+            role,
+            permissions: ROLE_PERMISSIONS[role] || [],
             active: true,
         },
     });
 });
 router.post("/login", async (req, res) => {
     const data = loginSchema.parse(req.body);
-    const userDoc = await db.collection("users").findOne({ email: data.email });
+    const { data: userDoc } = await supabase.from("users").select("*").eq("email", data.email).single();
     if (!userDoc) {
         return res.status(401).json({ error: "Invalid credentials" });
     }
     if (userDoc.active === false) {
         return res.status(403).json({ error: "Sua conta está desativada. Entre em contato com a administração." });
     }
-    const valid = await bcrypt.compare(data.password, userDoc.passwordHash);
+    const valid = await bcrypt.compare(data.password, userDoc.password);
     if (!valid) {
         return res.status(401).json({ error: "Invalid credentials" });
     }
-    const userIdStr = userDoc._id.toString();
+    const userIdStr = userDoc.id;
     const token = signToken({ sub: userIdStr, email: userDoc.email, role: userDoc.role });
     return res.json({
         token,
@@ -87,24 +90,24 @@ router.get("/me", requireAuth, async (req, res) => {
     let user = null;
     if (req.user?.sub) {
         try {
-            const userDoc = await db.collection("users").findOne({ _id: new ObjectId(req.user.sub) });
+            const { data: userDoc } = await supabase.from("users").select("*").eq("id", req.user.sub).single();
             if (userDoc) {
                 if (userDoc.active === false) {
                     return res.status(403).json({ error: "Sua conta está desativada" });
                 }
                 user = {
-                    id: userDoc._id.toString(),
+                    id: userDoc.id,
                     name: userDoc.name,
                     email: userDoc.email,
                     role: userDoc.role,
                     permissions: ROLE_PERMISSIONS[userDoc.role] || [],
                     active: true,
-                    createdAt: userDoc.createdAt,
+                    createdAt: userDoc.created_at,
                 };
             }
         }
         catch {
-            // Invalid ObjectId format
+            // Invalid format
         }
     }
     if (!user) {

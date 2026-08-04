@@ -65,6 +65,27 @@ export default function ConfiguracoesPage() {
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState("")
   const [stats, setStats] = useState<any | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string>("")
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError("A foto deve ter no máximo 2MB")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result as string
+      if (dataUrl) {
+        setAvatarUrl(dataUrl)
+        setSuccess("Foto de perfil selecionada! Clique em 'Salvar Alterações'.")
+      }
+    }
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     if (user) {
@@ -210,13 +231,29 @@ export default function ConfiguracoesPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
-                <Avatar className="h-20 w-20">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                    {perfil.nome.charAt(0)}
-                  </AvatarFallback>
+                <Avatar className="h-20 w-20 border border-border overflow-hidden">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={perfil.nome} className="h-full w-full object-cover" />
+                  ) : (
+                    <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
+                      {perfil.nome ? perfil.nome.charAt(0).toUpperCase() : "U"}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
                 <div>
-                  <Button variant="outline" size="sm">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                    id="avatar-upload-input"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("avatar-upload-input")?.click()}
+                  >
                     Alterar Foto
                   </Button>
                   <p className="text-xs text-muted-foreground mt-1">JPG, PNG ou GIF. Máximo 2MB.</p>
@@ -439,25 +476,6 @@ export default function ConfiguracoesPage() {
               <CardDescription>Ajuste como o conteúdo é exibido</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Idioma</Label>
-                <Select
-                  value={aparencia.idioma}
-                  onValueChange={(value) => setAparencia({ ...aparencia, idioma: value })}
-                >
-                  <SelectTrigger className="w-full sm:w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
-                    <SelectItem value="en-US">English (US)</SelectItem>
-                    <SelectItem value="es">Español</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-sm">Modo Compacto</p>
@@ -476,45 +494,6 @@ export default function ConfiguracoesPage() {
 
         {/* Sistema */}
         <TabsContent value="sistema" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                Dados do Sistema
-              </CardTitle>
-              <CardDescription>Informações e ações sobre os dados</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="p-4 rounded-lg bg-accent/50">
-                  <p className="text-sm text-muted-foreground">Alunos Cadastrados</p>
-                  <p className="text-2xl font-bold">{stats?.totalStudents ?? 0}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-accent/50">
-                  <p className="text-sm text-muted-foreground">Turmas Ativas</p>
-                  <p className="text-2xl font-bold">{stats?.activeClasses ?? 0}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-accent/50">
-                  <p className="text-sm text-muted-foreground">Planos de Aula</p>
-                  <p className="text-2xl font-bold">{stats?.totalLessonPlans ?? 0}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-accent/50">
-                  <p className="text-sm text-muted-foreground">Registros de Presença</p>
-                  <p className="text-2xl font-bold">{stats?.totalAttendances ?? 0}</p>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline">Exportar Dados</Button>
-                <Button variant="outline">Fazer Backup</Button>
-                <Button variant="outline" className="text-destructive hover:text-destructive">
-                  Limpar Cache
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader>

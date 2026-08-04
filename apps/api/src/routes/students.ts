@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { z } from "zod"
-import { db, ObjectId, Role } from "../lib/db.js"
+import { supabase, Role } from "../lib/db.js"
 import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js"
 import { createAuditLog } from "../lib/audit.js"
 
@@ -19,55 +19,55 @@ const studentSchema = z.object({
 })
 
 async function updateClassEnrollmentCounts() {
-  const classes = await db.collection("classes").find().toArray()
+  const { data: classes } = await supabase.from("classes").select("*")
+  if (!classes) return
+  const { data: students } = await supabase.from("students").select("*")
+  if (!students) return
+
   for (const c of classes) {
-    const classIdStr = c._id.toString()
-    const count = await db.collection("students").countDocuments({
-      $or: [
-        { classId: classIdStr },
-        { classIds: classIdStr }
-      ]
-    })
-    await db.collection("classes").updateOne(
-      { _id: c._id },
-      { $set: { alunosMatriculados: count } }
-    )
+    const count = students.filter(s => 
+      s.class_id === c.id || (Array.isArray(s.class_ids) && s.class_ids.includes(c.id))
+    ).length
+
+    await supabase.from("classes").update({ alunos_matriculados: count }).eq("id", c.id)
   }
 }
 
 // GET /students - List all students
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
-  let filter: any = {}
-  if (req.user!.role === Role.TEACHER) {
-    const teacherClasses = await db.collection("classes")
-      .find({ professorId: req.user!.sub })
-      .toArray()
-    const classIds = teacherClasses.map(c => c._id.toString())
-    filter = {
-      $or: [
-        { classId: { $in: classIds } },
-        { classIds: { $in: classIds } }
-      ]
-    }
+  let { data: studentsList, error } = await supabase
+    .from("students")
+    .select("*")
+    .order("created_at", { ascending: false })
+
+  if (error || !studentsList) {
+    return res.json({ students: [] })
   }
 
-  const studentsList = await db.collection("students")
-    .find(filter)
-    .sort({ createdAt: -1 })
-    .toArray()
+  if (req.user!.role === Role.TEACHER) {
+    const { data: teacherClasses } = await supabase
+      .from("classes")
+      .select("id")
+      .eq("professor_id", req.user!.sub)
+
+    const classIds = teacherClasses ? teacherClasses.map(c => c.id) : []
+    studentsList = studentsList.filter(s => 
+      classIds.includes(s.class_id) || (Array.isArray(s.class_ids) && s.class_ids.some((id: string) => classIds.includes(id)))
+    )
+  }
 
   const students = studentsList.map((s: any) => ({
-    id: s._id.toString(),
+    id: s.id,
     nome: s.nome,
     cpf: s.cpf,
-    dataNascimento: s.dataNascimento,
+    dataNascimento: s.data_nascimento || s.dataNascimento,
     email: s.email || "",
-    telefone: s.telefone,
-    endereco: s.endereco,
-    curso: s.curso,
-    classId: s.classId || null,
-    classIds: s.classIds || [],
-    createdAt: s.createdAt,
+    telefone: s.telefone || "",
+    endereco: s.endereco || "",
+    curso: s.curso || "",
+    classId: s.class_id || s.classId || null,
+    classIds: s.class_ids || s.classIds || [],
+    createdAt: s.created_at,
   }))
 
   return res.json({ students })
@@ -76,28 +76,41 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
 // POST /students - Create student
 router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const data = studentSchema.parse(req.body)
+  const id = crypto.randomUUID()
 
-  const newStudent = {
-    ...data,
-    createdAt: new Date().toISOString().split("T")[0],
-    updatedAt: new Date(),
+  const row = {
+    id,
+    nome: data.nome,
+    cpf: data.cpf,
+    data_nascimento: data.dataNascimento,
+    email: data.email || "",
+    telefone: data.telefone || "",
+    endereco: data.endereco || "",
+    curso: data.curso || "",
+    class_id: data.classId || null,
+    class_ids: data.classIds || [],
+    created_at: new Date().toISOString()
   }
 
-  const result = await db.collection("students").insertOne(newStudent)
+  const { error } = await supabase.from("students").insert(row)
+  if (error) {
+    return res.status(400).json({ error: error.message })
+  }
 
   await updateClassEnrollmentCounts()
 
   const student = {
-    id: result.insertedId.toString(),
-    ...newStudent,
+    id,
+    ...data,
+    createdAt: row.created_at
   }
 
   await createAuditLog(
     req.user!.sub,
     "CREATE",
     "student",
-    `Cadastrou o aluno ${newStudent.nome} (CPF: ${newStudent.cpf})`,
-    student.id
+    `Cadastrou o aluno ${data.nome} (CPF: ${data.cpf})`,
+    id
   )
 
   return res.status(201).json({ student })
@@ -108,17 +121,20 @@ router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Rol
   const { id } = req.params
   const data = studentSchema.partial().parse(req.body)
 
-  const updateData = {
-    ...data,
-    updatedAt: new Date(),
-  }
+  const updateRow: any = {}
+  if (data.nome !== undefined) updateRow.nome = data.nome
+  if (data.cpf !== undefined) updateRow.cpf = data.cpf
+  if (data.dataNascimento !== undefined) updateRow.data_nascimento = data.dataNascimento
+  if (data.email !== undefined) updateRow.email = data.email
+  if (data.telefone !== undefined) updateRow.telefone = data.telefone
+  if (data.endereco !== undefined) updateRow.endereco = data.endereco
+  if (data.curso !== undefined) updateRow.curso = data.curso
+  if (data.classId !== undefined) updateRow.class_id = data.classId
+  if (data.classIds !== undefined) updateRow.class_ids = data.classIds
 
-  await db.collection("students").updateOne(
-    { _id: new ObjectId(id) },
-    { $set: updateData }
-  )
+  await supabase.from("students").update(updateRow).eq("id", id)
 
-  const updatedStudent = await db.collection("students").findOne({ _id: new ObjectId(id) })
+  const { data: updatedStudent } = await supabase.from("students").select("nome").eq("id", id).single()
   const name = updatedStudent ? updatedStudent.nome : "Desconhecido"
 
   await updateClassEnrollmentCounts()
@@ -137,13 +153,11 @@ router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Rol
 // DELETE /students/:id - Delete student
 router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.SECRETARY), async (req: AuthRequest, res) => {
   const { id } = req.params
-  const existingStudent = await db.collection("students").findOne({ _id: new ObjectId(id) })
+  const { data: existingStudent } = await supabase.from("students").select("nome").eq("id", id).single()
   const name = existingStudent ? existingStudent.nome : "Desconhecido"
 
-  await db.collection("students").deleteOne({ _id: new ObjectId(id) })
-  
-  // Clean up attendance for this student (studentId stored as string)
-  await db.collection("attendances").deleteMany({ studentId: id })
+  await supabase.from("students").delete().eq("id", id)
+  await supabase.from("attendances").delete().eq("student_id", id)
 
   await updateClassEnrollmentCounts()
 

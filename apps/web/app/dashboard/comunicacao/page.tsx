@@ -19,13 +19,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Megaphone, Plus, CheckCircle, Calendar, Trash2, AlertCircle } from "lucide-react"
-import { getAnnouncements, createAnnouncement, deleteAnnouncement, type Announcement } from "@/lib/api"
+import { Megaphone, Plus, CheckCircle, Calendar, Trash2, AlertCircle, Pencil, Paperclip, FileText, X, Download } from "lucide-react"
+import { getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, type AnnouncementAttachment } from "@/lib/api"
 
 export default function ComunicacaoPage() {
   const { user } = useAuth()
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [announcementToDelete, setAnnouncementToDelete] = useState<Announcement | null>(null)
   const [sucesso, setSucesso] = useState("")
@@ -33,9 +34,17 @@ export default function ComunicacaoPage() {
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const [form, setForm] = useState({ title: "", body: "" })
+  const [form, setForm] = useState<{
+    title: string
+    body: string
+    attachments: AnnouncementAttachment[]
+  }>({
+    title: "",
+    body: "",
+    attachments: []
+  })
 
-  const isDirector = user?.role === "ADMIN" || user?.role === "DIRECTOR"
+  const isDirector = user?.role === "ADMIN" || user?.role === "DIRECTOR" || user?.role === "COORDINATOR" || user?.role === "SECRETARY"
 
   const loadAnnouncements = async () => {
     try {
@@ -56,18 +65,90 @@ export default function ComunicacaoPage() {
     setTimeout(() => { setSucesso(""); setErro("") }, 4000)
   }
 
+  const resetForm = () => {
+    setForm({ title: "", body: "", attachments: [] })
+    setEditingAnnouncement(null)
+  }
+
+  const handleEdit = (announcement: Announcement) => {
+    setEditingAnnouncement(announcement)
+    setForm({
+      title: announcement.title,
+      body: announcement.body,
+      attachments: announcement.attachments || []
+    })
+    setDialogOpen(true)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    const maxSizeBytes = 5 * 1024 * 1024 // 5 MB
+
+    Array.from(files).forEach(file => {
+      if (file.size > maxSizeBytes) {
+        showFeedback(`O arquivo "${file.name}" excede o tamanho máximo permitido de 5 MB.`, "err")
+        return
+      }
+
+      if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+        showFeedback(`Tipo de arquivo não suportado para "${file.name}". Apenas imagens e PDFs são permitidos.`, "err")
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64Data = event.target?.result as string
+        if (base64Data) {
+          setForm(prev => ({
+            ...prev,
+            attachments: [
+              ...prev.attachments,
+              {
+                name: file.name,
+                type: file.type,
+                data: base64Data,
+                size: file.size
+              }
+            ]
+          }))
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleRemoveAttachment = (index: number) => {
+    setForm(prev => ({
+      ...prev,
+      attachments: prev.attachments.filter((_, i) => i !== index)
+    }))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
     setErro("")
+
+    if (!form.title.trim() || !form.body.trim()) {
+      setErro("Título e Mensagem são campos obrigatórios e não podem estar vazios.")
+      return
+    }
+
+    setLoading(true)
     try {
-      await createAnnouncement(form)
-      setForm({ title: "", body: "" })
+      if (editingAnnouncement) {
+        await updateAnnouncement(editingAnnouncement.id, form)
+        showFeedback("Aviso atualizado com sucesso!", "ok")
+      } else {
+        await createAnnouncement(form)
+        showFeedback("Aviso publicado com sucesso!", "ok")
+      }
+      resetForm()
       setDialogOpen(false)
       await loadAnnouncements()
-      showFeedback("Aviso publicado com sucesso!", "ok")
     } catch (error) {
-      showFeedback(error instanceof Error ? error.message : "Erro ao publicar aviso.", "err")
+      showFeedback(error instanceof Error ? error.message : "Erro ao salvar aviso.", "err")
     } finally {
       setLoading(false)
     }
@@ -122,7 +203,10 @@ export default function ComunicacaoPage() {
           </div>
 
           {isDirector && (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open)
+              if (!open) resetForm()
+            }}>
               <DialogTrigger asChild>
                 <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-md shrink-0">
                   <Plus className="h-4 w-4 mr-2" />
@@ -131,7 +215,9 @@ export default function ComunicacaoPage() {
               </DialogTrigger>
               <DialogContent className="max-w-md bg-background border border-border">
                 <DialogHeader>
-                  <DialogTitle className="text-foreground">Publicar Novo Aviso</DialogTitle>
+                  <DialogTitle className="text-foreground">
+                    {editingAnnouncement ? "Editar Aviso" : "Publicar Novo Aviso"}
+                  </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground">
                     Este aviso ficará visível para toda a equipe do projeto.
                   </DialogDescription>
@@ -157,18 +243,70 @@ export default function ComunicacaoPage() {
                         value={form.body}
                         onChange={e => setForm({ ...form, body: e.target.value })}
                         placeholder="Escreva a mensagem do comunicado aqui..."
-                        rows={6}
+                        rows={5}
                         required
                         className="resize-none"
                       />
                     </Field>
                   </FieldGroup>
+
+                  {/* Anexos */}
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel className="text-foreground font-medium">Anexos (Imagens e PDFs, máx 5MB por arquivo)</FieldLabel>
+                      <div className="flex flex-col gap-2">
+                        <Input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          multiple
+                          onChange={handleFileUpload}
+                          className="hidden"
+                          id="announcement-file-input"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => document.getElementById("announcement-file-input")?.click()}
+                          className="border-dashed border-2 hover:bg-muted flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                          <span>Selecionar Imagem ou PDF</span>
+                        </Button>
+
+                        {form.attachments.length > 0 && (
+                          <div className="space-y-1.5 mt-2">
+                            {form.attachments.map((file, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 rounded bg-muted/40 text-xs border border-border">
+                                <div className="flex items-center gap-2 truncate">
+                                  <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <span className="truncate">{file.name}</span>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">
+                                    ({(file.size / (1024 * 1024)).toFixed(2)} MB)
+                                  </span>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleRemoveAttachment(idx)}
+                                  className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </Field>
+                  </FieldGroup>
+
                   <div className="flex gap-3 justify-end pt-4 border-t border-border/50">
-                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                    <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetForm() }}>
                       Cancelar
                     </Button>
                     <Button type="submit" disabled={loading} className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6">
-                      {loading ? "Publicando..." : "Publicar"}
+                      {loading ? "Salvando..." : (editingAnnouncement ? "Salvar Alterações" : "Publicar")}
                     </Button>
                   </div>
                 </form>
@@ -256,15 +394,26 @@ export default function ComunicacaoPage() {
                             {formatDate(announcement.createdAt)}
                           </span>
                           {isDirector && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => requestDelete(announcement)}
-                              title="Excluir aviso"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                                onClick={() => handleEdit(announcement)}
+                                title="Editar aviso"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => requestDelete(announcement)}
+                                title="Excluir aviso"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -279,10 +428,43 @@ export default function ComunicacaoPage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-4">
+                <CardContent className="pt-4 space-y-4">
                   <p className="text-sm sm:text-base text-muted-foreground whitespace-pre-wrap leading-relaxed">
                     {announcement.body}
                   </p>
+
+                  {/* Display Attachments */}
+                  {announcement.attachments && announcement.attachments.length > 0 && (
+                    <div className="pt-3 border-t border-border/40 space-y-2">
+                      <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <Paperclip className="h-3.5 w-3.5 text-primary" />
+                        Anexos ({announcement.attachments.length})
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {announcement.attachments.map((att, idx) => (
+                          <div key={idx} className="p-2.5 rounded-lg border border-border/60 bg-muted/20 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 truncate">
+                              <FileText className="h-4 w-4 text-primary shrink-0" />
+                              <div className="truncate">
+                                <p className="text-xs font-medium text-foreground truncate">{att.name}</p>
+                                <p className="text-[10px] text-muted-foreground">{(att.size / (1024 * 1024)).toFixed(2)} MB</p>
+                              </div>
+                            </div>
+                            <a
+                              href={att.data}
+                              download={att.name}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1.5 rounded hover:bg-muted text-primary hover:text-primary/80 shrink-0"
+                              title="Baixar/Visualizar arquivo"
+                            >
+                              <Download className="h-4 w-4" />
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))

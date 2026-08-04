@@ -165,6 +165,11 @@ export default function ProfessoresPage() {
   const [resettingTeacher, setResettingTeacher] = useState<Teacher | null>(null)
   const [newPassword, setNewPassword] = useState("")
 
+  // Exclusão com Modal
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [saving, setSaving] = useState(false)
@@ -302,17 +307,27 @@ export default function ProfessoresPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir este colaborador?")) return
+  const requestDelete = (teacher: Teacher) => {
+    setTeacherToDelete(teacher)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!teacherToDelete) return
     setError("")
     setSuccess("")
+    setDeleting(true)
     try {
-      await deleteTeacher(id)
-      setTeachers(prev => prev.filter(t => t.id !== id))
+      await deleteTeacher(teacherToDelete.id)
+      setTeachers(prev => prev.filter(t => t.id !== teacherToDelete.id))
       setSuccess("Colaborador excluído com sucesso")
+      setDeleteDialogOpen(false)
+      setTeacherToDelete(null)
       loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir colaborador")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -785,8 +800,8 @@ export default function ProfessoresPage() {
                                         )}
                                       </DropdownMenuItem>
                                       <DropdownMenuItem 
-                                        onClick={() => handleDelete(teacher.id)}
-                                        className="text-destructive"
+                                        onClick={() => requestDelete(teacher)}
+                                        className="text-destructive cursor-pointer"
                                       >
                                         <Trash2 className="h-4 w-4 mr-2" />
                                         Excluir
@@ -1160,6 +1175,36 @@ export default function ProfessoresPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de confirmação de exclusão de colaborador */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-sm bg-background border border-border">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Excluir Colaborador</DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm mt-1">
+              Tem certeza que deseja excluir o colaborador <strong>"{teacherToDelete?.name}"</strong>? Esta ação removerá o acesso ao sistema e não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setTeacherToDelete(null) }}
+              disabled={deleting}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90 text-xs"
+            >
+              {deleting ? "Excluindo..." : "Excluir Colaborador"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, Role } from "../lib/db.js";
+import { supabase, Role } from "../lib/db.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 const attendanceRecordSchema = z.object({
@@ -12,64 +12,53 @@ const bulkAttendanceSchema = z.object({
     classId: z.string().optional(),
     records: z.array(attendanceRecordSchema),
 });
-// GET /attendance - Get attendance records with lookup
+// GET /attendance - Get attendance records
 router.get("/", requireAuth, async (req, res) => {
     const { date, classId, startDate, endDate } = req.query;
-    const filter = {};
+    let query = supabase.from("attendances").select("*");
     if (date) {
-        filter.date = date;
+        query = query.eq("date", date);
     }
     if (classId) {
-        filter.classId = classId;
+        query = query.eq("class_id", classId);
     }
-    if (startDate || endDate) {
-        filter.date = {};
-        if (startDate) {
-            filter.date.$gte = startDate;
-        }
-        if (endDate) {
-            filter.date.$lte = endDate;
-        }
+    if (startDate) {
+        query = query.gte("date", startDate);
+    }
+    if (endDate) {
+        query = query.lte("date", endDate);
     }
     if (req.user.role === Role.TEACHER) {
-        const teacherClasses = await db.collection("classes")
-            .find({ professorId: req.user.sub })
-            .toArray();
-        const classIds = teacherClasses.map(c => c._id.toString());
+        const { data: teacherClasses } = await supabase
+            .from("classes")
+            .select("id")
+            .eq("professor_id", req.user.sub);
+        const classIds = teacherClasses ? teacherClasses.map(c => c.id) : [];
         if (classId) {
             if (!classIds.includes(classId)) {
                 return res.json({ records: [] });
             }
         }
         else {
-            filter.classId = { $in: classIds };
+            query = query.in("class_id", classIds);
         }
     }
-    // Aggregate to lookup student details
-    const attendanceList = await db.collection("attendances")
-        .aggregate([
-        { $match: filter },
-        {
-            $lookup: {
-                from: "students",
-                let: { studentIdObj: { $toObjectId: "$studentId" } },
-                pipeline: [
-                    { $match: { $expr: { $eq: ["$_id", "$$studentIdObj"] } } }
-                ],
-                as: "studentInfo"
-            }
-        }
-    ])
-        .toArray();
+    const { data: attendanceList, error } = await query;
+    if (error || !attendanceList) {
+        return res.json({ records: [] });
+    }
+    // Get student info for lookup
+    const { data: students } = await supabase.from("students").select("id, nome");
+    const studentMap = new Map(students ? students.map(s => [s.id, s.nome]) : []);
     const records = attendanceList.map((a) => ({
-        id: a._id.toString(),
-        alunoId: a.studentId,
-        studentId: a.studentId,
+        id: a.id,
+        alunoId: a.student_id || a.studentId,
+        studentId: a.student_id || a.studentId,
         data: a.date,
         date: a.date,
         status: (a.status === "presente" || a.status === "PRESENT") ? "PRESENT" : "ABSENT",
-        classId: a.classId,
-        student: a.studentInfo?.[0] ? { name: a.studentInfo[0].nome } : null
+        classId: a.class_id || a.classId,
+        student: studentMap.has(a.student_id || a.studentId) ? { name: studentMap.get(a.student_id || a.studentId) } : null
     }));
     return res.json({ records });
 });
@@ -77,19 +66,23 @@ router.get("/", requireAuth, async (req, res) => {
 router.post("/", requireAuth, async (req, res) => {
     const { date, classId, records } = bulkAttendanceSchema.parse(req.body);
     const studentIds = records.map(r => r.studentId);
-    await db.collection("attendances").deleteMany({
-        date,
-        studentId: { $in: studentIds }
-    });
+    if (studentIds.length > 0) {
+        await supabase
+            .from("attendances")
+            .delete()
+            .eq("date", date)
+            .in("student_id", studentIds);
+    }
     if (records.length > 0) {
         const documents = records.map(r => ({
-            studentId: r.studentId,
-            classId,
+            id: crypto.randomUUID(),
+            student_id: r.studentId,
+            class_id: classId || "",
             date,
             status: (r.status === "PRESENT" || r.status === "presente") ? "presente" : "ausente",
-            createdAt: new Date()
+            created_at: new Date().toISOString()
         }));
-        await db.collection("attendances").insertMany(documents);
+        await supabase.from("attendances").insert(documents);
     }
     return res.json({ success: true });
 });

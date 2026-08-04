@@ -1,4 +1,4 @@
-import { db, ObjectId } from "./db.js"
+import { supabase } from "./db.js"
 
 export async function createAuditLog(
   userId: string,
@@ -8,19 +8,16 @@ export async function createAuditLog(
   targetId?: string
 ) {
   try {
-    const userDoc = await db.collection("users").findOne({ _id: new ObjectId(userId) })
-    const userName = userDoc ? userDoc.name : "Desconhecido"
-    const userRole = userDoc ? userDoc.role : "UNKNOWN"
+    const { data: userDoc } = await supabase.from("users").select("name, role").eq("id", userId).single()
     
-    await db.collection("audit_logs").insertOne({
-      userId,
-      userName,
-      userRole,
+    await supabase.from("audit_logs").insert({
+      id: crypto.randomUUID(),
+      user_id: userId,
       action,
       resource,
-      description,
-      targetId,
-      createdAt: new Date(),
+      details: description,
+      resource_id: targetId || null,
+      timestamp: new Date().toISOString(),
     })
   } catch (err) {
     console.error("Failed to write audit log:", err)

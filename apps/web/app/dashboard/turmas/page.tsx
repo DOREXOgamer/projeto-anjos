@@ -52,6 +52,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 const diasSemanaOptions = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
+const normalizeText = (str: string) =>
+  (str || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+
 export default function TurmasPage() {
   const { user } = useAuth()
   const canManage = user?.role === "ADMIN" || user?.role === "DIRECTOR" || user?.role === "COORDINATOR"
@@ -65,6 +68,12 @@ export default function TurmasPage() {
   const [filtroCurso, setFiltroCurso] = useState<string>('todos')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTurma, setEditingTurma] = useState<Turma | null>(null)
+  
+  // Exclusão com Modal
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [turmaToDelete, setTurmaToDelete] = useState<Turma | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   const [sucesso, setSucesso] = useState('')
   const [erro, setErro] = useState('')
   const [formData, setFormData] = useState({
@@ -107,8 +116,10 @@ export default function TurmasPage() {
   }, [user])
 
   const turmasFiltradas = turmas.filter(turma => {
-    const matchBusca = turma.nome.toLowerCase().includes(busca.toLowerCase()) ||
-                       turma.professor.toLowerCase().includes(busca.toLowerCase())
+    const buscaNorm = normalizeText(busca)
+    const nomeNorm = normalizeText(turma.nome || '')
+    const profNorm = normalizeText(turma.professor || '')
+    const matchBusca = !buscaNorm || nomeNorm.includes(buscaNorm) || profNorm.includes(buscaNorm)
     const matchStatus = filtroStatus === 'todos' || turma.status === filtroStatus
     const matchCurso = filtroCurso === 'todos' || turma.curso === filtroCurso
     return matchBusca && matchStatus && matchCurso
@@ -192,18 +203,28 @@ export default function TurmasPage() {
     setModalOpen(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir esta turma?')) return
+  const requestDelete = (turma: Turma) => {
+    setTurmaToDelete(turma)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!turmaToDelete) return
+    setDeleting(true)
     try {
-      await deleteClass(id)
+      await deleteClass(turmaToDelete.id)
       const classes = await getClasses()
       setTurmas(classes)
       setSucesso('Turma excluída com sucesso!')
+      setDeleteDialogOpen(false)
+      setTurmaToDelete(null)
       setTimeout(() => setSucesso(''), 4000)
     } catch (error) {
       console.error("Erro ao excluir turma:", error)
       setErro(error instanceof Error ? error.message : 'Erro ao excluir turma.')
       setTimeout(() => setErro(''), 4000)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -588,8 +609,8 @@ export default function TurmasPage() {
                           Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem 
-                          onClick={() => handleDelete(turma.id)}
-                          className="text-destructive"
+                          onClick={() => requestDelete(turma)}
+                          className="text-destructive cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Excluir
@@ -649,6 +670,36 @@ export default function TurmasPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Modal de confirmação de exclusão de turma */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-sm bg-background border border-border">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Excluir Turma</DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm mt-1">
+              Tem certeza que deseja excluir a turma <strong>"{turmaToDelete?.nome}"</strong>? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setTurmaToDelete(null) }}
+              disabled={deleting}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90 text-xs"
+            >
+              {deleting ? "Excluindo..." : "Excluir Turma"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </RequirePermission>
   )

@@ -68,7 +68,7 @@ export default function LoginPage() {
             />
           </div>
           <CardTitle className="text-2xl font-bold text-foreground">
-            Bem-vindo de volta
+            Bem-vindo
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             Acesse o sistema de gestão acadêmica
@@ -131,16 +131,6 @@ export default function LoginPage() {
                 "Entrar"
               )}
             </Button>
-
-            <div className="text-center">
-              <button
-                type="button"
-                className="text-sm text-primary hover:text-primary/80 hover:underline transition-colors"
-                onClick={() => alert("Funcionalidade de recuperação de senha em desenvolvimento")}
-              >
-                Esqueci minha senha
-              </button>
-            </div>
           </form>
         </CardContent>
       </Card>

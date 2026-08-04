@@ -66,7 +66,6 @@ const menuItems: Array<{ group: string; items: NavItem[] }> = [
     items: [
       { href: "/dashboard/plano-aula", label: "Plano de Aula", icon: BookOpen, permission: PERMISSIONS.PLANO_AULA },
       { href: "/dashboard/calendario", label: "Calendário", icon: Calendar, permission: PERMISSIONS.CALENDARIO },
-      { href: "/dashboard/notas", label: "Notas", icon: ClipboardList, permission: PERMISSIONS.NOTAS },
     ],
   },
   {

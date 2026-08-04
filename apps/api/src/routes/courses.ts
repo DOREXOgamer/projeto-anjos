@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { z } from "zod"
-import { db, Role, ObjectId } from "../lib/db.js"
+import { supabase, Role } from "../lib/db.js"
 import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js"
 import { createAuditLog } from "../lib/audit.js"
 
@@ -13,13 +13,17 @@ const courseSchema = z.object({
 
 // GET /courses - List all courses
 router.get("/", requireAuth, async (_req, res) => {
-  const coursesList = await db.collection("courses")
-    .find()
-    .sort({ createdAt: -1 })
-    .toArray()
+  const { data: coursesList, error } = await supabase
+    .from("courses")
+    .select("*")
+    .order("created_at", { ascending: false })
+
+  if (error || !coursesList) {
+    return res.json({ courses: [] })
+  }
 
   const courses = coursesList.map((c: any) => ({
-    id: c._id.toString(),
+    id: c.id,
     name: c.name,
     description: c.description || "",
   }))
@@ -30,26 +34,31 @@ router.get("/", requireAuth, async (_req, res) => {
 // POST /courses - Create course
 router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (req: AuthRequest, res) => {
   const data = courseSchema.parse(req.body)
+  const id = crypto.randomUUID()
 
-  const newCourse = {
-    ...data,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  const row = {
+    id,
+    name: data.name,
+    description: data.description || "",
+    created_at: new Date().toISOString()
   }
 
-  const result = await db.collection("courses").insertOne(newCourse)
+  const { error } = await supabase.from("courses").insert(row)
+  if (error) {
+    return res.status(400).json({ error: error.message })
+  }
 
   const course = {
-    id: result.insertedId.toString(),
-    ...newCourse,
+    id,
+    ...data,
   }
 
   await createAuditLog(
     req.user!.sub,
     "CREATE",
     "course",
-    `Criou o curso ${newCourse.name}`,
-    course.id
+    `Criou o curso ${data.name}`,
+    id
   )
 
   return res.status(201).json({ course })
@@ -60,17 +69,13 @@ router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), as
   const { id } = req.params
   const data = courseSchema.partial().parse(req.body)
 
-  const updateData = {
-    ...data,
-    updatedAt: new Date(),
-  }
+  const updateRow: any = {}
+  if (data.name !== undefined) updateRow.name = data.name
+  if (data.description !== undefined) updateRow.description = data.description
 
-  await db.collection("courses").updateOne(
-    { _id: new ObjectId(id) },
-    { $set: updateData }
-  )
+  await supabase.from("courses").update(updateRow).eq("id", id)
 
-  const updatedCourse = await db.collection("courses").findOne({ _id: new ObjectId(id) })
+  const { data: updatedCourse } = await supabase.from("courses").select("name").eq("id", id).single()
   const name = updatedCourse ? updatedCourse.name : "Desconhecido"
 
   await createAuditLog(
@@ -87,10 +92,10 @@ router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), as
 // DELETE /courses/:id - Delete course
 router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (req: AuthRequest, res) => {
   const { id } = req.params
-  const existingCourse = await db.collection("courses").findOne({ _id: new ObjectId(id) })
+  const { data: existingCourse } = await supabase.from("courses").select("name").eq("id", id).single()
   const name = existingCourse ? existingCourse.name : "Desconhecido"
 
-  await db.collection("courses").deleteOne({ _id: new ObjectId(id) })
+  await supabase.from("courses").delete().eq("id", id)
 
   await createAuditLog(
     req.user!.sub,

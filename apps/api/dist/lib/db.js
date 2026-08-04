@@ -1,10 +1,19 @@
-import { MongoClient, ObjectId } from "mongodb";
-import { env } from "./env.js";
-import dns from "dns";
-dns.setDefaultResultOrder("ipv4first");
-export const client = new MongoClient(env.DATABASE_URL);
-export const db = client.db();
-export { ObjectId };
+import { createClient } from "@supabase/supabase-js";
+const supabaseUrl = process.env.SUPABASE_URL || "https://izkkgarmlvgregktdids.supabase.co";
+const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_fG_E34djPcx2VZHT7YvNDw_6EOmHQCo";
+export const supabase = createClient(supabaseUrl, supabaseKey);
+export class ObjectId {
+    idStr;
+    constructor(id) {
+        this.idStr = id || crypto.randomUUID();
+    }
+    toString() {
+        return this.idStr;
+    }
+    static isValid(id) {
+        return typeof id === "string" && id.length > 0;
+    }
+}
 export var Role;
 (function (Role) {
     Role["ADMIN"] = "ADMIN";

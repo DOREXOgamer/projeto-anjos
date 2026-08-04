@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, ObjectId, Role } from "../lib/db.js";
+import { supabase, Role } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createAuditLog } from "../lib/audit.js";
 const router = Router();
@@ -18,58 +18,90 @@ const classSchema = z.object({
 });
 // GET /classes - List all classes
 router.get("/", requireAuth, async (req, res) => {
-    const filter = {};
+    let query = supabase.from("classes").select("*").order("created_at", { ascending: false });
     if (req.user.role === Role.TEACHER) {
-        filter.professorId = req.user.sub;
+        query = query.eq("professor_id", req.user.sub);
     }
-    const classesList = await db.collection("classes")
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .toArray();
+    const { data: classesList, error } = await query;
+    if (error || !classesList) {
+        return res.json({ classes: [] });
+    }
     const classes = classesList.map((c) => ({
-        id: c._id.toString(),
+        id: c.id,
         nome: c.nome,
         curso: c.curso,
-        courseId: c.courseId || "",
+        courseId: c.course_id || c.courseId || "",
         horario: c.horario,
-        diasSemana: c.diasSemana,
+        diasSemana: c.dias_semana || c.diasSemana || [],
         professor: c.professor,
-        professorId: c.professorId || "",
+        professorId: c.professor_id || c.professorId || "",
         capacidade: c.capacidade,
-        alunosMatriculados: c.alunosMatriculados || 0,
+        alunosMatriculados: c.alunos_matriculados || c.alunosMatriculados || 0,
         sala: c.sala,
         status: c.status,
-        createdAt: c.createdAt,
+        createdAt: c.created_at,
     }));
     return res.json({ classes });
 });
 // POST /classes - Create class
 router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (req, res) => {
     const data = classSchema.parse(req.body);
-    const newClass = {
+    const id = crypto.randomUUID();
+    const row = {
+        id,
+        nome: data.nome,
+        curso: data.curso,
+        course_id: data.courseId || null,
+        horario: data.horario,
+        dias_semana: data.diasSemana,
+        professor: data.professor,
+        professor_id: data.professorId || null,
+        capacidade: data.capacidade,
+        alunos_matriculados: 0,
+        sala: data.sala,
+        status: data.status,
+        created_at: new Date().toISOString()
+    };
+    const { error } = await supabase.from("classes").insert(row);
+    if (error) {
+        return res.status(400).json({ error: error.message });
+    }
+    const turma = {
+        id,
         ...data,
         alunosMatriculados: 0,
-        createdAt: new Date().toISOString().split("T")[0],
-        updatedAt: new Date(),
+        createdAt: row.created_at
     };
-    const result = await db.collection("classes").insertOne(newClass);
-    const turma = {
-        id: result.insertedId.toString(),
-        ...newClass,
-    };
-    await createAuditLog(req.user.sub, "CREATE", "class", `Criou a turma ${newClass.nome} para o curso ${newClass.curso}`, turma.id);
+    await createAuditLog(req.user.sub, "CREATE", "class", `Criou a turma ${data.nome} para o curso ${data.curso}`, id);
     return res.status(201).json({ class: turma });
 });
 // PUT /classes/:id - Update class
 router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (req, res) => {
     const { id } = req.params;
     const data = classSchema.partial().parse(req.body);
-    const updateData = {
-        ...data,
-        updatedAt: new Date(),
-    };
-    await db.collection("classes").updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-    const updatedClass = await db.collection("classes").findOne({ _id: new ObjectId(id) });
+    const updateRow = {};
+    if (data.nome !== undefined)
+        updateRow.nome = data.nome;
+    if (data.curso !== undefined)
+        updateRow.curso = data.curso;
+    if (data.courseId !== undefined)
+        updateRow.course_id = data.courseId;
+    if (data.horario !== undefined)
+        updateRow.horario = data.horario;
+    if (data.diasSemana !== undefined)
+        updateRow.dias_semana = data.diasSemana;
+    if (data.professor !== undefined)
+        updateRow.professor = data.professor;
+    if (data.professorId !== undefined)
+        updateRow.professor_id = data.professorId;
+    if (data.capacidade !== undefined)
+        updateRow.capacidade = data.capacidade;
+    if (data.sala !== undefined)
+        updateRow.sala = data.sala;
+    if (data.status !== undefined)
+        updateRow.status = data.status;
+    await supabase.from("classes").update(updateRow).eq("id", id);
+    const { data: updatedClass } = await supabase.from("classes").select("nome").eq("id", id).single();
     const name = updatedClass ? updatedClass.nome : "Desconhecido";
     await createAuditLog(req.user.sub, "UPDATE", "class", `Atualizou a turma ${name}`, id);
     return res.json({ success: true });
@@ -77,13 +109,12 @@ router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), as
 // DELETE /classes/:id - Delete class
 router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (req, res) => {
     const { id } = req.params;
-    const existingClass = await db.collection("classes").findOne({ _id: new ObjectId(id) });
+    const { data: existingClass } = await supabase.from("classes").select("nome").eq("id", id).single();
     const name = existingClass ? existingClass.nome : "Desconhecido";
-    await db.collection("classes").deleteOne({ _id: new ObjectId(id) });
-    // Clean up cascade: attendance and lessons use classId as string
-    await db.collection("attendances").deleteMany({ classId: id });
-    await db.collection("lessons").deleteMany({ classId: id });
-    await db.collection("events").deleteMany({ turmaId: id });
+    await supabase.from("classes").delete().eq("id", id);
+    await supabase.from("attendances").delete().eq("class_id", id);
+    await supabase.from("lessons").delete().eq("class_id", id);
+    await supabase.from("events").delete().eq("class_id", id);
     await createAuditLog(req.user.sub, "DELETE", "class", `Excluiu a turma ${name}`, id);
     return res.json({ success: true });
 });

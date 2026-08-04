@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db, Role, ObjectId, ROLE_PERMISSIONS } from "../lib/db.js";
+import { supabase, Role, ROLE_PERMISSIONS } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createAuditLog } from "../lib/audit.js";
 const router = Router();
@@ -48,12 +48,16 @@ const changePasswordSchema = z.object({
     newPassword: z.string().min(6),
 });
 router.get("/teachers", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR), async (_req, res) => {
-    const teachersList = await db.collection("users")
-        .find({ role: { $ne: Role.STUDENT } })
-        .sort({ createdAt: -1 })
-        .toArray();
+    const { data: teachersList, error } = await supabase
+        .from("users")
+        .select("*")
+        .neq("role", Role.STUDENT)
+        .order("created_at", { ascending: false });
+    if (error || !teachersList) {
+        return res.json({ teachers: [] });
+    }
     const teachers = teachersList.map((t) => ({
-        id: t._id.toString(),
+        id: t.id,
         name: t.name,
         email: t.email,
         role: t.role || Role.TEACHER,
@@ -61,25 +65,44 @@ router.get("/teachers", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR
         active: t.active !== false,
         cpf: t.cpf || "",
         telefone: t.telefone || "",
-        dataNascimento: t.dataNascimento || "",
+        dataNascimento: t.data_nascimento || t.dataNascimento || "",
         endereco: t.endereco || "",
-        createdAt: t.createdAt,
+        createdAt: t.created_at,
     }));
     return res.json({ teachers });
 });
 router.post("/teachers", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
     const data = createTeacherSchema.parse(req.body);
-    const existing = await db.collection("users").findOne({ email: data.email });
+    const { data: existing } = await supabase.from("users").select("id").eq("email", data.email).single();
     if (existing) {
         return res.status(409).json({ error: "Email already in use" });
     }
     const passwordHash = await bcrypt.hash(data.password, 10);
     const role = data.role ?? Role.TEACHER;
     const permissions = ROLE_PERMISSIONS[role] || [];
-    const newUser = {
+    const id = crypto.randomUUID();
+    const row = {
+        id,
         name: data.name,
         email: data.email,
-        passwordHash,
+        password: passwordHash,
+        role,
+        permissions,
+        active: true,
+        cpf: data.cpf || "",
+        telefone: data.telefone || "",
+        data_nascimento: data.dataNascimento || "",
+        endereco: data.endereco || "",
+        created_at: new Date().toISOString()
+    };
+    const { error } = await supabase.from("users").insert(row);
+    if (error) {
+        return res.status(400).json({ error: error.message });
+    }
+    const user = {
+        id,
+        name: data.name,
+        email: data.email,
         role,
         permissions,
         active: true,
@@ -87,48 +110,48 @@ router.post("/teachers", requireAuth, requireRole(Role.DIRECTOR), async (req, re
         telefone: data.telefone || "",
         dataNascimento: data.dataNascimento || "",
         endereco: data.endereco || "",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: row.created_at,
     };
-    const result = await db.collection("users").insertOne(newUser);
-    const user = {
-        id: result.insertedId.toString(),
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        permissions: newUser.permissions,
-        active: true,
-        cpf: newUser.cpf,
-        telefone: newUser.telefone,
-        dataNascimento: newUser.dataNascimento,
-        endereco: newUser.endereco,
-        createdAt: newUser.createdAt,
-    };
-    await createAuditLog(req.user.sub, "CREATE", "user", `Cadastrou o colaborador ${newUser.name} com o cargo ${newUser.role}`, user.id);
+    await createAuditLog(req.user.sub, "CREATE", "user", `Cadastrou o colaborador ${data.name} com o cargo ${role}`, id);
     return res.status(201).json({ user });
 });
 router.put("/teachers/:id", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
     const { id } = req.params;
     const data = updateTeacherSchema.parse(req.body);
-    const existingUser = await db.collection("users").findOne({ _id: new ObjectId(id) });
+    const { data: existingUser } = await supabase.from("users").select("*").eq("id", id).single();
     if (!existingUser) {
         return res.status(404).json({ error: "Teacher not found" });
     }
     const finalRole = data.role ?? existingUser.role ?? Role.TEACHER;
-    const updateData = {
-        ...data,
+    const updateRow = {
         permissions: ROLE_PERMISSIONS[finalRole] || [],
-        updatedAt: new Date(),
+        updated_at: new Date().toISOString()
     };
-    await db.collection("users").updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-    const updatedUser = await db.collection("users").findOne({ _id: new ObjectId(id) });
+    if (data.name !== undefined)
+        updateRow.name = data.name;
+    if (data.email !== undefined)
+        updateRow.email = data.email;
+    if (data.role !== undefined)
+        updateRow.role = data.role;
+    if (data.active !== undefined)
+        updateRow.active = data.active;
+    if (data.cpf !== undefined)
+        updateRow.cpf = data.cpf;
+    if (data.telefone !== undefined)
+        updateRow.telefone = data.telefone;
+    if (data.dataNascimento !== undefined)
+        updateRow.data_nascimento = data.dataNascimento;
+    if (data.endereco !== undefined)
+        updateRow.endereco = data.endereco;
+    await supabase.from("users").update(updateRow).eq("id", id);
+    const { data: updatedUser } = await supabase.from("users").select("*").eq("id", id).single();
     if (!updatedUser) {
         return res.status(404).json({ error: "Teacher not found" });
     }
     await createAuditLog(req.user.sub, "UPDATE", "user", `Atualizou o colaborador ${updatedUser.name} (cargo: ${updatedUser.role}, ativo: ${updatedUser.active !== false})`, id);
     return res.json({
         user: {
-            id: updatedUser._id.toString(),
+            id: updatedUser.id,
             name: updatedUser.name,
             email: updatedUser.email,
             role: updatedUser.role,
@@ -136,41 +159,41 @@ router.put("/teachers/:id", requireAuth, requireRole(Role.DIRECTOR), async (req,
             active: updatedUser.active !== false,
             cpf: updatedUser.cpf || "",
             telefone: updatedUser.telefone || "",
-            dataNascimento: updatedUser.dataNascimento || "",
+            dataNascimento: updatedUser.data_nascimento || updatedUser.dataNascimento || "",
             endereco: updatedUser.endereco || "",
-            createdAt: updatedUser.createdAt,
+            createdAt: updatedUser.created_at,
         }
     });
 });
 router.delete("/teachers/:id", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
     const { id } = req.params;
-    const existingUser = await db.collection("users").findOne({ _id: new ObjectId(id) });
+    const { data: existingUser } = await supabase.from("users").select("name").eq("id", id).single();
     const name = existingUser ? existingUser.name : "Desconhecido";
-    await db.collection("users").deleteOne({ _id: new ObjectId(id) });
+    await supabase.from("users").delete().eq("id", id);
     await createAuditLog(req.user.sub, "DELETE", "user", `Excluiu o colaborador ${name}`, id);
     return res.json({ success: true });
 });
 router.post("/teachers/:id/reset-password", requireAuth, requireRole(Role.DIRECTOR), async (req, res) => {
     const { id } = req.params;
-    const existingUser = await db.collection("users").findOne({ _id: new ObjectId(id) });
+    const { data: existingUser } = await supabase.from("users").select("name").eq("id", id).single();
     const name = existingUser ? existingUser.name : "Desconhecido";
     const { password } = resetPasswordSchema.parse(req.body);
     const passwordHash = await bcrypt.hash(password, 10);
-    await db.collection("users").updateOne({ _id: new ObjectId(id) }, { $set: { passwordHash, updatedAt: new Date() } });
+    await supabase.from("users").update({ password: passwordHash, updated_at: new Date().toISOString() }).eq("id", id);
     await createAuditLog(req.user.sub, "RESET_PASSWORD", "user", `Redefiniu a senha do colaborador ${name}`, id);
     return res.json({ success: true });
 });
 router.put("/profile", requireAuth, async (req, res) => {
     const data = updateProfileSchema.parse(req.body);
-    const userId = new ObjectId(req.user.sub);
-    await db.collection("users").updateOne({ _id: userId }, { $set: { ...data, updatedAt: new Date() } });
-    const updatedUser = await db.collection("users").findOne({ _id: userId });
+    const userId = req.user.sub;
+    await supabase.from("users").update({ ...data, updated_at: new Date().toISOString() }).eq("id", userId);
+    const { data: updatedUser } = await supabase.from("users").select("*").eq("id", userId).single();
     if (!updatedUser) {
         return res.status(404).json({ error: "User not found" });
     }
     return res.json({
         user: {
-            id: updatedUser._id.toString(),
+            id: updatedUser.id,
             name: updatedUser.name,
             email: updatedUser.email,
             role: updatedUser.role,
@@ -180,17 +203,17 @@ router.put("/profile", requireAuth, async (req, res) => {
 });
 router.post("/change-password", requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-    const userId = new ObjectId(req.user.sub);
-    const userDoc = await db.collection("users").findOne({ _id: userId });
+    const userId = req.user.sub;
+    const { data: userDoc } = await supabase.from("users").select("password").eq("id", userId).single();
     if (!userDoc) {
         return res.status(404).json({ error: "User not found" });
     }
-    const valid = await bcrypt.compare(currentPassword, userDoc.passwordHash);
+    const valid = await bcrypt.compare(currentPassword, userDoc.password);
     if (!valid) {
         return res.status(400).json({ error: "Senha atual incorreta" });
     }
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await db.collection("users").updateOne({ _id: userId }, { $set: { passwordHash, updatedAt: new Date() } });
+    await supabase.from("users").update({ password: passwordHash, updated_at: new Date().toISOString() }).eq("id", userId);
     return res.json({ success: true });
 });
 export const usersRouter = router;

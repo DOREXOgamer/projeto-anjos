@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, ObjectId, Role } from "../lib/db.js";
+import { supabase, Role } from "../lib/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createAuditLog } from "../lib/audit.js";
 const router = Router();
@@ -17,63 +17,48 @@ const gradeSchema = z.object({
 // GET /grades - Get grades with filter (classId, studentId)
 router.get("/", requireAuth, async (req, res) => {
     const { classId, studentId } = req.query;
-    const filter = {};
+    let query = supabase.from("grades").select("*");
     if (classId) {
-        filter.classId = classId;
+        query = query.eq("class_id", classId);
     }
     if (studentId) {
-        filter.studentId = studentId;
+        query = query.eq("student_id", studentId);
     }
     if (req.user.role === Role.TEACHER) {
-        const teacherClasses = await db.collection("classes")
-            .find({ professorId: req.user.sub })
-            .toArray();
-        const classIds = teacherClasses.map(c => c._id.toString());
+        const { data: teacherClasses } = await supabase
+            .from("classes")
+            .select("id")
+            .eq("professor_id", req.user.sub);
+        const classIds = teacherClasses ? teacherClasses.map((c) => c.id) : [];
         if (classId) {
             if (!classIds.includes(classId)) {
                 return res.json({ grades: [] });
             }
         }
         else {
-            filter.classId = { $in: classIds };
+            query = query.in("class_id", classIds);
         }
     }
-    const gradesList = await db.collection("grades")
-        .aggregate([
-        { $match: filter },
-        { $sort: { createdAt: -1 } },
-        {
-            $lookup: {
-                from: "students",
-                let: { studentIdObj: { $toObjectId: "$studentId" } },
-                pipeline: [
-                    { $match: { $expr: { $eq: ["$_id", "$$studentIdObj"] } } }
-                ],
-                as: "studentInfo"
-            }
-        },
-        {
-            $unwind: {
-                path: "$studentInfo",
-                preserveNullAndEmptyArrays: true
-            }
-        }
-    ])
-        .toArray();
+    const { data: gradesList, error } = await query;
+    if (error || !gradesList) {
+        return res.json({ grades: [] });
+    }
+    const { data: students } = await supabase.from("students").select("id, nome");
+    const studentMap = new Map(students ? students.map((s) => [s.id, s.nome]) : []);
     const grades = gradesList.map((g) => ({
-        id: g._id.toString(),
-        studentId: g.studentId,
-        studentName: g.studentInfo?.nome || "Aluno não encontrado",
-        classId: g.classId,
+        id: g.id,
+        studentId: g.student_id || g.studentId,
+        studentName: studentMap.get(g.student_id || g.studentId) || "Aluno não encontrado",
+        classId: g.class_id || g.classId,
         disciplina: g.disciplina,
         tipo: g.tipo,
         nota: g.nota,
-        notaMaxima: g.notaMaxima,
-        data: g.data,
+        notaMaxima: g.nota_maxima || g.notaMaxima,
+        data: g.date || g.data,
         observacoes: g.observacoes || "",
-        professorId: g.professorId || "",
+        professorId: g.professor_id || g.professorId || "",
         professor: g.professor || "",
-        createdAt: g.createdAt,
+        createdAt: g.created_at,
     }));
     return res.json({ grades });
 });
@@ -81,75 +66,84 @@ router.get("/", requireAuth, async (req, res) => {
 router.post("/", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.TEACHER), async (req, res) => {
     const data = gradeSchema.parse(req.body);
     const professorId = req.user.sub;
-    const user = await db.collection("users").findOne({ _id: new ObjectId(professorId) });
+    const { data: user } = await supabase.from("users").select("name").eq("id", professorId).single();
     const professorName = user ? user.name : "Desconhecido";
-    const newGrade = {
+    const id = crypto.randomUUID();
+    const row = {
+        id,
+        student_id: data.studentId,
+        class_id: data.classId,
+        disciplina: data.disciplina,
+        tipo: data.tipo,
+        nota: data.nota,
+        nota_maxima: data.notaMaxima,
+        date: data.data,
+        observacoes: data.observacoes || "",
+        professor_id: professorId,
+        professor: professorName,
+        created_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("grades").insert(row);
+    if (error) {
+        return res.status(400).json({ error: error.message });
+    }
+    const grade = {
+        id,
         ...data,
         professorId,
         professor: professorName,
-        createdAt: new Date().toISOString(),
-    };
-    const result = await db.collection("grades").insertOne(newGrade);
-    const grade = {
-        id: result.insertedId.toString(),
-        ...newGrade,
+        createdAt: row.created_at
     };
     try {
-        const studentDoc = await db.collection("students").findOne({ _id: new ObjectId(newGrade.studentId) });
+        const { data: studentDoc } = await supabase.from("students").select("nome").eq("id", data.studentId).single();
         const studentName = studentDoc ? studentDoc.nome : "Desconhecido";
-        await createAuditLog(req.user.sub, "CREATE", "grade", `Lançou nota ${newGrade.nota}/${newGrade.notaMaxima} para o aluno ${studentName} no curso ${newGrade.disciplina}`, grade.id);
+        await createAuditLog(req.user.sub, "CREATE", "grade", `Lançou nota ${data.nota}/${data.notaMaxima} para o aluno ${studentName} no curso ${data.disciplina}`, id);
     }
-    catch (e) {
-        // Ignore db helper errors
-    }
+    catch (e) { }
     return res.status(201).json({ grade });
 });
 // PUT /grades/:id - Update grade
 router.put("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.TEACHER), async (req, res) => {
     const { id } = req.params;
     const data = gradeSchema.partial().parse(req.body);
-    if (req.user.role === Role.TEACHER) {
-        const existing = await db.collection("grades").findOne({ _id: new ObjectId(id) });
-        if (!existing) {
-            return res.status(404).json({ error: "Nota não encontrada" });
-        }
-        if (existing.professorId !== req.user.sub) {
-            return res.status(403).json({ error: "Acesso negado: Você só pode editar notas lançadas por você mesmo." });
-        }
+    const { data: existing } = await supabase.from("grades").select("*").eq("id", id).single();
+    if (!existing) {
+        return res.status(404).json({ error: "Nota não encontrada" });
     }
-    const updateData = {
-        ...data,
-        updatedAt: new Date(),
-    };
-    await db.collection("grades").updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-    try {
-        const updatedGrade = await db.collection("grades").findOne({ _id: new ObjectId(id) });
-        if (updatedGrade) {
-            const studentDoc = await db.collection("students").findOne({ _id: new ObjectId(updatedGrade.studentId) });
-            const studentName = studentDoc ? studentDoc.nome : "Desconhecido";
-            await createAuditLog(req.user.sub, "UPDATE", "grade", `Atualizou nota do aluno ${studentName} no curso ${updatedGrade.disciplina}`, id);
-        }
+    if (req.user.role === Role.TEACHER && existing.professor_id !== req.user.sub) {
+        return res.status(403).json({ error: "Acesso negado: Você só pode editar notas lançadas por você mesmo." });
     }
-    catch (e) { }
+    const updateRow = {};
+    if (data.studentId !== undefined)
+        updateRow.student_id = data.studentId;
+    if (data.classId !== undefined)
+        updateRow.class_id = data.classId;
+    if (data.disciplina !== undefined)
+        updateRow.disciplina = data.disciplina;
+    if (data.tipo !== undefined)
+        updateRow.tipo = data.tipo;
+    if (data.nota !== undefined)
+        updateRow.nota = data.nota;
+    if (data.notaMaxima !== undefined)
+        updateRow.nota_maxima = data.notaMaxima;
+    if (data.data !== undefined)
+        updateRow.date = data.data;
+    if (data.observacoes !== undefined)
+        updateRow.observacoes = data.observacoes;
+    await supabase.from("grades").update(updateRow).eq("id", id);
     return res.json({ success: true });
 });
 // DELETE /grades/:id - Delete grade
 router.delete("/:id", requireAuth, requireRole(Role.DIRECTOR, Role.COORDINATOR, Role.TEACHER), async (req, res) => {
     const { id } = req.params;
-    const existingGrade = await db.collection("grades").findOne({ _id: new ObjectId(id) });
+    const { data: existingGrade } = await supabase.from("grades").select("*").eq("id", id).single();
     if (!existingGrade) {
         return res.status(404).json({ error: "Nota não encontrada" });
     }
-    if (req.user.role === Role.TEACHER && existingGrade.professorId !== req.user.sub) {
+    if (req.user.role === Role.TEACHER && existingGrade.professor_id !== req.user.sub) {
         return res.status(403).json({ error: "Acesso negado: Você só pode excluir notas lançadas por você mesmo." });
     }
-    try {
-        const studentDoc = await db.collection("students").findOne({ _id: new ObjectId(existingGrade.studentId) });
-        const studentName = studentDoc ? studentDoc.nome : "Desconhecido";
-        await createAuditLog(req.user.sub, "DELETE", "grade", `Excluiu nota do aluno ${studentName} no curso ${existingGrade.disciplina}`, id);
-    }
-    catch (e) { }
-    await db.collection("grades").deleteOne({ _id: new ObjectId(id) });
+    await supabase.from("grades").delete().eq("id", id);
     return res.json({ success: true });
 });
 export const gradesRouter = router;

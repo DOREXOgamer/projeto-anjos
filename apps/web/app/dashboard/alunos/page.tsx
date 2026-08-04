@@ -92,6 +92,9 @@ const formatTelefone = (value: string) => {
     .replace(/(-\d{4})\d+?$/, '$1')
 }
 
+const normalizeText = (str: string) =>
+  (str || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+
 export default function AlunosPage() {
   const [alunos, setAlunos] = useState<Aluno[]>([])
   const [classes, setClasses] = useState<Turma[]>([])
@@ -100,6 +103,11 @@ export default function AlunosPage() {
   const [filtroCurso, setFiltroCurso] = useState("todos")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAluno, setEditingAluno] = useState<Aluno | null>(null)
+
+  // Exclusão com Modal
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [alunoToDelete, setAlunoToDelete] = useState<Aluno | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // CSV Import States
   const [csvImportOpen, setCsvImportOpen] = useState(false)
@@ -243,19 +251,26 @@ export default function AlunosPage() {
     setDialogOpen(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir este aluno?")) {
-      return
-    }
+  const requestDelete = (aluno: Aluno) => {
+    setAlunoToDelete(aluno)
+    setDeleteDialogOpen(true)
+  }
 
+  const confirmDelete = async () => {
+    if (!alunoToDelete) return
+    setDeleting(true)
     try {
-      await deleteStudent(id)
+      await deleteStudent(alunoToDelete.id)
       const students = await getStudents()
       setAlunos(students)
       toast.success("Aluno excluído com sucesso!")
+      setDeleteDialogOpen(false)
+      setAlunoToDelete(null)
     } catch (error) {
       console.error("Erro ao excluir aluno:", error)
       toast.error("Erro ao excluir aluno. Tente novamente.")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -409,8 +424,13 @@ export default function AlunosPage() {
     document.body.removeChild(link)
   }
 
-  const alunosFiltrados = alunos.filter(aluno => {
-    const matchBusca = aluno.nome.toLowerCase().includes(filtro.toLowerCase())
+  // Ordenação alfabética e filtro insensível a acentos
+  const alunosOrdenados = [...alunos].sort((a, b) =>
+    a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
+  )
+
+  const alunosFiltrados = alunosOrdenados.filter(aluno => {
+    const matchBusca = normalizeText(aluno.nome).includes(normalizeText(filtro))
     
     // Check if filter course matches any of student's classes courses or student.curso string
     const studentCourses = aluno.curso ? aluno.curso.split(", ").map(c => c.trim()) : []
@@ -425,7 +445,12 @@ export default function AlunosPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Alunos</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground">Alunos</h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
+              Total: {alunos.length}
+            </span>
+          </div>
           <p className="text-muted-foreground mt-1">
             Gerencie as matrículas e dados pessoais dos alunos
           </p>
@@ -888,8 +913,9 @@ export default function AlunosPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDelete(aluno.id)}
+                              onClick={() => requestDelete(aluno)}
                               className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              title="Excluir aluno"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -904,6 +930,36 @@ export default function AlunosPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Confirm Delete Student Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-sm bg-background border border-border">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Excluir Aluno</DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm mt-1">
+              Tem certeza que deseja excluir o aluno <strong>"{alunoToDelete?.nome}"</strong>? Esta ação removerá a matrícula e não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setAlunoToDelete(null) }}
+              disabled={deleting}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90 text-xs"
+            >
+              {deleting ? "Excluindo..." : "Excluir Aluno"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </RequirePermission>
   )

@@ -141,38 +141,40 @@ export default function PlanoAulaPage() {
     setViewDialogOpen(true)
   }
 
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [planoToDelete, setPlanoToDelete] = useState<PlanoAula | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
 
     setUploading(true)
-    const formData = new FormData()
-    for (let i = 0; i < files.length; i++) {
-      formData.append("files", files[i])
-    }
 
     try {
-      const token = getStoredToken()
-      const res = await fetch(`${API_URL}/lesson-plans/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      })
+      const readAsDataURL = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+      }
 
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.error || "Erro ao fazer upload dos arquivos")
+      const newFileUrls: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const dataUrl = await readAsDataURL(file)
+        newFileUrls.push(dataUrl)
       }
 
       setForm((prev) => ({
         ...prev,
-        files: [...prev.files, ...data.urls],
+        files: [...prev.files, ...newFileUrls],
       }))
     } catch (error) {
       console.error("Erro no upload:", error)
-      alert("Erro ao fazer upload dos arquivos. Tente novamente.")
+      alert("Erro ao ler os arquivos. Tente novamente.")
     } finally {
       setUploading(false)
     }
@@ -185,19 +187,27 @@ export default function PlanoAulaPage() {
     }))
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir este plano de aula?")) {
-      return
-    }
+  const requestDelete = (plano: PlanoAula) => {
+    setPlanoToDelete(plano)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!planoToDelete) return
+    setDeleting(true)
 
     try {
-      await deleteLessonPlan(id)
+      await deleteLessonPlan(planoToDelete.id)
       const plans = await getLessonPlans()
       setPlanos(plans)
       setSucesso("Plano de aula excluído com sucesso!")
+      setDeleteDialogOpen(false)
+      setPlanoToDelete(null)
     } catch (error) {
       console.error("Erro ao excluir plano de aula:", error)
       setSucesso("Erro ao excluir plano de aula. Tente novamente.")
+    } finally {
+      setDeleting(false)
     }
 
     setTimeout(() => setSucesso(""), 3000)
@@ -529,8 +539,9 @@ export default function PlanoAulaPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDelete(plano.id)}
+                        onClick={() => requestDelete(plano)}
                         className="h-8 w-8 border-border text-destructive hover:text-destructive hover:bg-destructive/10"
+                        title="Excluir plano"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -583,13 +594,14 @@ export default function PlanoAulaPage() {
                   <h4 className="text-sm font-semibold text-foreground mb-1.5">Arquivos Anexos</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {viewingPlano.files.map((fileUrl: string, index: number) => {
-                      const fileName = fileUrl.split("/").pop() || `Arquivo ${index + 1}`
-                      const baseUrl = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL
-                      const downloadUrl = fileUrl.startsWith("http") ? fileUrl : `${baseUrl}${fileUrl}`
+                      const isDataUrl = fileUrl.startsWith("data:")
+                      const fileName = isDataUrl ? `Anexo ${index + 1}` : (fileUrl.split("/").pop() || `Arquivo ${index + 1}`)
+                      const downloadUrl = fileUrl
                       return (
                         <a
-                          key={fileUrl}
+                          key={index}
                           href={downloadUrl}
+                          download={fileName}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center justify-between p-2.5 bg-muted/40 hover:bg-muted/80 rounded-lg border border-border transition-colors group cursor-pointer"
@@ -617,6 +629,36 @@ export default function PlanoAulaPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de confirmação de exclusão do Plano de Aula */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-sm bg-background border border-border">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Excluir Plano de Aula</DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm mt-1">
+              Tem certeza que deseja excluir o plano de aula de <strong>"{planoToDelete?.disciplina}"</strong>? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setPlanoToDelete(null) }}
+              disabled={deleting}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90 text-xs"
+            >
+              {deleting ? "Excluindo..." : "Excluir Plano"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -85,10 +85,18 @@ export interface Teacher {
   createdAt: string
 }
 
+export interface AnnouncementAttachment {
+  name: string
+  type: string
+  data: string
+  size: number
+}
+
 export interface Announcement {
   id: string
   title: string
   body: string
+  attachments?: AnnouncementAttachment[]
   author?: {
     id: string
     name: string
