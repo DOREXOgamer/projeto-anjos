@@ -1,5 +1,3 @@
-import { supabase } from "./supabase"
-
 const TOKEN_KEY = "anjos_token"
 const USER_KEY = "anjos_user"
 const COOKIE_KEY = "anjos_token"
@@ -86,24 +84,8 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       }
     }
   } catch (e) {
-    // API backend local indisponível
+    // API backend indisponível
   }
-
-  // Fallback via Supabase
-  try {
-    const { data: userDoc } = await supabase.from("users").select("*").eq("email", email).single()
-    if (userDoc) {
-      const user: AuthUser = {
-        id: userDoc.id,
-        name: userDoc.name,
-        email: userDoc.email,
-        role: (userDoc.role as UserRole) || "ADMIN",
-        permissions: userDoc.permissions || ["alunos", "turmas", "presenca", "plano_aula", "calendario", "comunicacao", "notas"]
-      }
-      const token = `token-${userDoc.id}`
-      return { token, user }
-    }
-  } catch (err) {}
 
   // Usuário Admin Padrão se o banco ainda não possuir registros
   if (email === "admin@anjosinocentes.org.br" && password === "admin123") {
