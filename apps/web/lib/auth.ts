@@ -66,8 +66,12 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 export async function loginRequest(email: string, password: string): Promise<AuthResponse> {
+  const targetApi = (typeof window !== "undefined" && window.location.hostname !== "localhost")
+    ? "/api"
+    : (API_URL || "/api")
+
   try {
-    const res = await fetch(`${API_URL}/auth/login`, {
+    const res = await fetch(`${targetApi}/auth/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -82,7 +86,7 @@ export async function loginRequest(email: string, password: string): Promise<Aut
       }
     }
   } catch (e) {
-    // API backend local indisponível (Failed to fetch). Tenta autenticação via Supabase.
+    // API backend local indisponível
   }
 
   // Fallback via Supabase
@@ -120,8 +124,12 @@ export async function loginRequest(email: string, password: string): Promise<Aut
 }
 
 export async function meRequest(token: string): Promise<AuthUser> {
+  const targetApi = (typeof window !== "undefined" && window.location.hostname !== "localhost")
+    ? "/api"
+    : (API_URL || "/api")
+
   try {
-    const res = await fetch(`${API_URL}/auth/me`, {
+    const res = await fetch(`${targetApi}/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
